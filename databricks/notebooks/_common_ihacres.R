@@ -390,6 +390,69 @@ prepare_source_catalog <- function(
   )
 }
 
+subset_catalog_for_catchments <- function(catalog, catchment_ids) {
+  catchment_ids <- unique(as.character(catchment_ids))
+
+  if (identical(catalog$mode, "existing_peq")) {
+    keep <- names(catalog$peq_index) %in% catchment_ids
+    return(list(mode = "existing_peq", peq_index = catalog$peq_index[keep]))
+  }
+
+  if (!identical(catalog$mode, "build_from_forcing")) {
+    stop(sprintf("Unsupported catalog mode for subsetting: %s", as.character(catalog$mode)))
+  }
+
+  weights_sub <- catalog$weights_df[catalog$weights_df$catchment_id %in% catchment_ids, , drop = FALSE]
+  op_ids_needed <- unique(weights_sub$op.id)
+
+  precip_sub <- catalog$precip_files_index[names(catalog$precip_files_index) %in% op_ids_needed]
+  temp_sub <- catalog$temp_files_index[names(catalog$temp_files_index) %in% op_ids_needed]
+  river_sub <- catalog$river_files_index[names(catalog$river_files_index) %in% catchment_ids]
+
+  list(
+    mode = "build_from_forcing",
+    weights_df = weights_sub,
+    precip_files_index = precip_sub,
+    temp_files_index = temp_sub,
+    river_files_index = river_sub
+  )
+}
+
+load_catalog_from_rds <- function(catalog_rds_path) {
+  if (is.null(catalog_rds_path) || is.na(catalog_rds_path) || !nzchar(catalog_rds_path)) return(NULL)
+  if (!file.exists(catalog_rds_path)) return(NULL)
+
+  obj <- readRDS(catalog_rds_path)
+  if (!is.list(obj) || is.null(obj$mode)) {
+    stop(sprintf("Invalid catalog file format: %s", catalog_rds_path))
+  }
+  obj
+}
+
+resolve_catalog <- function(
+  catalog_rds_path,
+  use_existing_peq,
+  sub_region,
+  weights_file,
+  peq_dir,
+  precip_dir,
+  temp_dir,
+  river_dir
+) {
+  from_disk <- load_catalog_from_rds(catalog_rds_path)
+  if (!is.null(from_disk)) return(from_disk)
+
+  prepare_source_catalog(
+    use_existing_peq = use_existing_peq,
+    sub_region = sub_region,
+    weights_file = weights_file,
+    peq_dir = peq_dir,
+    precip_dir = precip_dir,
+    temp_dir = temp_dir,
+    river_dir = river_dir
+  )
+}
+
 eligible_catchments_from_catalog <- function(catalog, catchment_limit = 110L) {
   if (identical(catalog$mode, "existing_peq")) {
     catchments <- sort(names(catalog$peq_index))

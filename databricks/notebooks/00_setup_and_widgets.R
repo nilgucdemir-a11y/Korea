@@ -83,6 +83,7 @@ safe_dir_create(file.path(ihacres_output_dir, "simulation_metrics"))
 safe_dir_create(file.path(ihacres_output_dir, "simulation_timeseries"))
 safe_dir_create(file.path(ihacres_output_dir, "simulation_logs"))
 safe_dir_create(file.path(ihacres_output_dir, "summaries"))
+safe_dir_create(file.path(ihacres_output_dir, "manifests"))
 
 if (!use_existing_peq) {
   safe_dir_create(ptq_output_dir)
@@ -108,6 +109,32 @@ catalog <- prepare_source_catalog(
 eligible <- eligible_catchments_from_catalog(catalog, catchment_limit = catchment_limit)
 if (length(eligible) == 0) stop("No eligible catchments were found for the selected configuration")
 
+runtime_catalog <- subset_catalog_for_catchments(catalog, eligible)
+runtime_catalog_path <- file.path(ihacres_output_dir, "manifests", "runtime_catalog.rds")
+catchment_manifest_path <- file.path(ihacres_output_dir, "manifests", "catchment_manifest.csv")
+saveRDS(runtime_catalog, runtime_catalog_path)
+
+catchment_manifest <- if (identical(runtime_catalog$mode, "existing_peq")) {
+  tibble::tibble(
+    catchment_id = eligible,
+    source_mode = "existing_peq",
+    source_path = unname(runtime_catalog$peq_index[match(eligible, names(runtime_catalog$peq_index))])
+  )
+} else {
+  op_count <- vapply(
+    eligible,
+    function(cid) sum(runtime_catalog$weights_df$catchment_id == cid, na.rm = TRUE),
+    integer(1)
+  )
+  tibble::tibble(
+    catchment_id = eligible,
+    source_mode = "build_from_forcing",
+    source_path = NA_character_,
+    op_count = op_count
+  )
+}
+readr::write_csv(catchment_manifest, catchment_manifest_path)
+
 catchment_ids_json <- jsonlite::toJSON(as.list(eligible), auto_unbox = TRUE)
 
 run_config <- list(
@@ -132,7 +159,9 @@ run_config <- list(
   objective = objective,
   model_type = model_type,
   min_obs = min_obs,
-  catchment_count = length(eligible)
+  catchment_count = length(eligible),
+  runtime_catalog_path = runtime_catalog_path,
+  catchment_manifest_path = catchment_manifest_path
 )
 
 config_path <- file.path(ihacres_output_dir, "run_config.json")
@@ -143,6 +172,8 @@ safe_set_task_value("catchment_count", as.character(length(eligible)))
 safe_set_task_value("run_config_path", config_path)
 safe_set_task_value("calibration_end_date", as.character(calibration_end_date))
 safe_set_task_value("simulation_years_csv_normalized", paste(simulation_years, collapse = ","))
+safe_set_task_value("runtime_catalog_path", runtime_catalog_path)
+safe_set_task_value("catchment_manifest_path", catchment_manifest_path)
 
 message("Setup complete.")
 message(sprintf("Region: %s", sub_region))
@@ -152,5 +183,6 @@ message(sprintf("Calibration years: %s (end: %s)", calibration_years, as.charact
 message(sprintf("Simulation years: %s", paste(simulation_years, collapse = ", ")))
 message(sprintf("Eligible catchments for this run: %s", length(eligible)))
 message(sprintf("Config written to: %s", config_path))
+message(sprintf("Runtime catalog written to: %s", runtime_catalog_path))
 
 print(utils::head(eligible, n = min(10, length(eligible))))

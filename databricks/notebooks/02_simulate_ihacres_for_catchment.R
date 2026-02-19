@@ -20,6 +20,7 @@ if (exists("dbutils")) {
   dbutils.widgets.text("temp_dir", "/Volumes/gc_prod_sandbox/mdt_sandbox/r_mdt/Projects/Other/122_2025_KR_IHACRES/R02_2016R1/sim.temp.data/", "Temp RDS directory (non-PEQ mode)")
   dbutils.widgets.text("river_dir", "/Volumes/gc_prod_sandbox/mdt_sandbox/r_mdt/Projects/Other/122_2025_KR_IHACRES/R02_2016R1/sim.river.data/", "River RDS directory (non-PEQ mode)")
   dbutils.widgets.text("ptq_output_dir", "/Volumes/gc_prod_sandbox/mdt_sandbox/r_mdt/Projects/Other/122_2025_KR_IHACRES/R02_Output/catchments_daily_PTQ_by_RiverID/KOR/", "Built PEQ output directory (non-PEQ mode)")
+  dbutils.widgets.text("catalog_rds_path", "", "Runtime catalog RDS path (optional)")
 
   dbutils.widgets.text("ihacres_output_dir", "/Volumes/gc_prod_sandbox/mdt_sandbox/r_mdt/Projects/Other/122_2025_KR_IHACRES/R02_Output/ihacres_results/KOR_1000y/", "IHACRES output directory")
   dbutils.widgets.text("start_date", "0000-01-01", "Series start date")
@@ -46,6 +47,7 @@ precip_dir <- get_param("precip_dir", "")
 temp_dir <- get_param("temp_dir", "")
 river_dir <- get_param("river_dir", "")
 ptq_output_dir <- get_param("ptq_output_dir", "/tmp/ihacres/ptq")
+catalog_rds_path <- get_param("catalog_rds_path", "")
 ihacres_output_dir <- get_param("ihacres_output_dir", "/tmp/ihacres/results")
 start_date <- parse_date_or_stop(get_param("start_date", "0000-01-01"), "start_date")
 simulation_years <- parse_years_csv(get_param("simulation_years_csv", "1000"), default = c(1000L))
@@ -57,6 +59,9 @@ min_obs <- parse_int_or_stop(get_param("min_obs", "365"), "min_obs", min_value =
 if (!nzchar(catchment_id)) stop("catchment_id must be provided")
 if (!(model_type %in% c("snow", "cmd"))) stop("model_type must be snow or cmd")
 if (!(tolower(objective) %in% c("kge", "nse"))) stop("objective must be kge or NSE")
+if (!nzchar(catalog_rds_path)) {
+  catalog_rds_path <- file.path(ihacres_output_dir, "manifests", "runtime_catalog.rds")
+}
 
 run_started_utc <- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ", tz = "UTC")
 
@@ -86,7 +91,8 @@ load_or_build_peq <- function() {
     return(normalize_peq_df(readRDS(peq_cache_path), catchment_id = catchment_id))
   }
 
-  catalog <- prepare_source_catalog(
+  catalog <- resolve_catalog(
+    catalog_rds_path = catalog_rds_path,
     use_existing_peq = use_existing_peq,
     sub_region = sub_region,
     weights_file = weights_file,
@@ -111,24 +117,28 @@ result_rows <- tryCatch({
 
   peq_df <- load_or_build_peq()
 
+  base_df <- peq_df %>%
+    dplyr::transmute(
+      Date = as.Date(Date),
+      P = as.numeric(P),
+      E = as.numeric(E),
+      Q = as.numeric(Q)
+    ) %>%
+    dplyr::filter(!is.na(Date), Date >= start_date) %>%
+    dplyr::filter(stats::complete.cases(P, E))
+
   rows <- lapply(simulation_years, function(y) {
     end_date <- window_end_from_years(start_date, y, days_per_year = days_per_year)
-    ts_result <- prepare_model_ts(
-      peq_df = peq_df,
-      start_date = start_date,
-      end_date = end_date,
-      min_obs = min_obs,
-      require_q = FALSE
-    )
+    window_df <- base_df[base_df$Date <= end_date, , drop = FALSE]
 
-    if (!identical(ts_result$status, "ok")) {
+    if (nrow(window_df) < min_obs) {
       return(tibble::tibble(
         catchment_id = catchment_id,
         simulation_years = y,
         simulation_start_date = as.character(start_date),
         simulation_end_date = as.character(end_date),
-        status = ts_result$status,
-        reason = ts_result$reason,
+        status = "skip",
+        reason = sprintf("Not enough rows after filtering (%s)", nrow(window_df)),
         model_type = model_type,
         objective = objective,
         simulation_method = NA_character_,
@@ -144,9 +154,11 @@ result_rows <- tryCatch({
       ))
     }
 
+    model_ts <- zoo::zoo(window_df[, c("P", "E", "Q")], order.by = window_df$Date)
+
     sim_result <- simulate_with_fit(
       fit = fit,
-      model_ts = ts_result$model_ts,
+      model_ts = model_ts,
       model_type = model_type,
       objective = objective
     )
@@ -162,7 +174,7 @@ result_rows <- tryCatch({
         model_type = model_type,
         objective = objective,
         simulation_method = sim_result$method_used,
-        n_rows_simulation = ts_result$n_rows,
+        n_rows_simulation = nrow(window_df),
         n_obs_metrics = NA_integer_,
         KGE = NA_real_,
         NSE = NA_real_,
@@ -196,7 +208,7 @@ result_rows <- tryCatch({
       model_type = model_type,
       objective = objective,
       simulation_method = sim_result$method_used,
-      n_rows_simulation = ts_result$n_rows,
+      n_rows_simulation = nrow(window_df),
       n_obs_metrics = metrics$n_obs,
       KGE = as.numeric(metrics$KGE),
       NSE = as.numeric(metrics$NSE),

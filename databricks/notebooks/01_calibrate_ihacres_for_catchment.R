@@ -20,6 +20,7 @@ if (exists("dbutils")) {
   dbutils.widgets.text("temp_dir", "/Volumes/gc_prod_sandbox/mdt_sandbox/r_mdt/Projects/Other/122_2025_KR_IHACRES/R02_2016R1/sim.temp.data/", "Temp RDS directory (non-PEQ mode)")
   dbutils.widgets.text("river_dir", "/Volumes/gc_prod_sandbox/mdt_sandbox/r_mdt/Projects/Other/122_2025_KR_IHACRES/R02_2016R1/sim.river.data/", "River RDS directory (non-PEQ mode)")
   dbutils.widgets.text("ptq_output_dir", "/Volumes/gc_prod_sandbox/mdt_sandbox/r_mdt/Projects/Other/122_2025_KR_IHACRES/R02_Output/catchments_daily_PTQ_by_RiverID/KOR/", "Built PEQ output directory (non-PEQ mode)")
+  dbutils.widgets.text("catalog_rds_path", "", "Runtime catalog RDS path (optional)")
 
   dbutils.widgets.text("ihacres_output_dir", "/Volumes/gc_prod_sandbox/mdt_sandbox/r_mdt/Projects/Other/122_2025_KR_IHACRES/R02_Output/ihacres_results/KOR_1000y/", "IHACRES output directory")
   dbutils.widgets.text("start_date", "0000-01-01", "Series start date")
@@ -49,6 +50,7 @@ precip_dir <- get_param("precip_dir", "")
 temp_dir <- get_param("temp_dir", "")
 river_dir <- get_param("river_dir", "")
 ptq_output_dir <- get_param("ptq_output_dir", "/tmp/ihacres/ptq")
+catalog_rds_path <- get_param("catalog_rds_path", "")
 ihacres_output_dir <- get_param("ihacres_output_dir", "/tmp/ihacres/results")
 start_date <- parse_date_or_stop(get_param("start_date", "0000-01-01"), "start_date")
 calibration_years <- parse_int_or_stop(get_param("calibration_years", "100"), "calibration_years", min_value = 1L)
@@ -63,6 +65,9 @@ min_obs <- parse_int_or_stop(get_param("min_obs", "365"), "min_obs", min_value =
 if (!nzchar(catchment_id)) stop("catchment_id must be provided")
 if (!(model_type %in% c("snow", "cmd"))) stop("model_type must be snow or cmd")
 if (!(tolower(objective) %in% c("kge", "nse"))) stop("objective must be kge or NSE")
+if (!nzchar(catalog_rds_path)) {
+  catalog_rds_path <- file.path(ihacres_output_dir, "manifests", "runtime_catalog.rds")
+}
 
 calibration_end_date <- window_end_from_years(start_date, calibration_years, days_per_year = days_per_year)
 run_started_utc <- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ", tz = "UTC")
@@ -96,7 +101,8 @@ metrics_path <- file.path(ihacres_output_dir, "calibration_metrics", paste0(catc
 log_path <- file.path(ihacres_output_dir, "calibration_logs", paste0(catchment_id, "_calibration_log.json"))
 
 result_row <- tryCatch({
-  catalog <- prepare_source_catalog(
+  catalog <- resolve_catalog(
+    catalog_rds_path = catalog_rds_path,
     use_existing_peq = use_existing_peq,
     sub_region = sub_region,
     weights_file = weights_file,
