@@ -61,6 +61,11 @@ parse_int_or_stop <- function(x, field_name, min_value = 1L, default = NA_intege
   v
 }
 
+parse_optional_int <- function(x, field_name, min_value = 1L, default = NA_integer_) {
+  if (is.null(x) || is.na(x) || !nzchar(as.character(x))) return(default)
+  parse_int_or_stop(x, field_name = field_name, min_value = min_value, default = default)
+}
+
 parse_years_csv <- function(x, default = c(1000L)) {
   txt <- if (is.null(x) || !nzchar(trimws(as.character(x)))) {
     paste(default, collapse = ",")
@@ -531,7 +536,7 @@ cfg_value <- function(cfg, name, default = NULL) {
   v
 }
 
-eligible_catchments_from_catalog <- function(catalog, catchment_limit = 110L) {
+eligible_catchments_from_catalog <- function(catalog, catchment_limit = NA_integer_) {
   inventory <- catchment_inventory_from_catalog(catalog)
   catchments <- inventory$eligible_ids
 

@@ -1,5 +1,5 @@
 {
-  "name": "ihacres-kor-110-catchments-parallel",
+  "name": "ihacres-kor-dynamic-catchments-parallel",
   "max_concurrent_runs": 1,
   "timeout_seconds": 0,
   "parameters": [
@@ -63,7 +63,7 @@
       ],
       "for_each_task": {
         "inputs": "{{tasks.setup_environment.values.catchment_ids_json}}",
-        "concurrency": 110,
+        "concurrency": "{{tasks.setup_environment.values.parallel_tasks_this_run}}",
         "task": {
           "task_key": "calibrate_single_catchment",
           "job_cluster_key": "ihacres_shared_cluster",
@@ -86,7 +86,7 @@
       ],
       "for_each_task": {
         "inputs": "{{tasks.setup_environment.values.catchment_ids_json}}",
-        "concurrency": 110,
+        "concurrency": "{{tasks.setup_environment.values.parallel_tasks_this_run}}",
         "task": {
           "task_key": "simulate_single_catchment",
           "job_cluster_key": "ihacres_shared_cluster",

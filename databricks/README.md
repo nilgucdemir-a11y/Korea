@@ -1,4 +1,4 @@
-# Databricks IHACRES workflow (110 parallel catchments)
+# Databricks IHACRES workflow (dynamic parallel catchments)
 
 This folder contains a Databricks workflow scaffold with **separate calibration and simulation stages** and a simplified user input experience.
 All notebooks are organized with clear Databricks cell sections (`# COMMAND ----------`) for readability.
@@ -44,8 +44,8 @@ All notebooks are organized with clear Databricks cell sections (`# COMMAND ----
 - `workflows/ihacres_110_parallel_workflow.json`
   - Databricks Job definition:
     1. setup
-    2. calibrate in parallel (for-each, concurrency 110)
-    3. simulate in parallel (for-each, concurrency 110)
+    2. calibrate in parallel (for-each, concurrency = selected catchment count)
+    3. simulate in parallel (for-each, concurrency = selected catchment count)
     4. merge results
 
 ## Key widgets/parameters
@@ -62,7 +62,15 @@ All notebooks are organized with clear Databricks cell sections (`# COMMAND ----
 - `advanced_config_json` (optional JSON object for power users)
   - Use this for custom paths, calibration years, catchment limit, optimizer, etc.
   - Example:
-    - `{"use_existing_peq":true,"peq_dir":"/Volumes/.../your_peq_dir","catchment_limit":110,"calibration_years":100}`
+    - `{"use_existing_peq":true,"peq_dir":"/Volumes/.../your_peq_dir","catchment_limit":111,"parallel_concurrency_limit":111,"calibration_years":100}`
+
+### Catchment count and parallel behavior
+
+- By default, setup selects **all eligible catchments** for the chosen country/region.
+- Default parallel concurrency is set to **the selected catchment count** (not fixed 110).
+- If needed, you can still limit:
+  - selected catchments via `catchment_limit`
+  - parallel workers via `parallel_concurrency_limit`
 
 ## Performance improvements included
 

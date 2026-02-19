@@ -61,7 +61,8 @@ country_defaults <- function(country_code, years, mtype) {
       calibration_samples = 1000L,
       optimization_method = "PORT",
       objective = "kge",
-      catchment_limit = 110L,
+      catchment_limit = NA_integer_,
+      parallel_concurrency_limit = NA_integer_,
       min_obs = 365L
     ))
   }
@@ -83,7 +84,8 @@ country_defaults <- function(country_code, years, mtype) {
     calibration_samples = 1000L,
     optimization_method = "PORT",
     objective = "kge",
-    catchment_limit = 110L,
+    catchment_limit = NA_integer_,
+    parallel_concurrency_limit = NA_integer_,
     min_obs = 365L
   )
 }
@@ -105,7 +107,13 @@ calibration_samples <- parse_int_or_stop(as.character(if (is.null(cfg$calibratio
 optimization_method <- as.character(if (is.null(cfg$optimization_method)) "PORT" else cfg$optimization_method)
 objective <- normalize_objective(if (is.null(cfg$objective)) "kge" else cfg$objective)
 model_type <- tolower(as.character(if (is.null(cfg$model_type)) model_type else cfg$model_type))
-catchment_limit <- parse_int_or_stop(as.character(if (is.null(cfg$catchment_limit)) "110" else cfg$catchment_limit), "catchment_limit", min_value = 1L)
+catchment_limit <- parse_optional_int(if (is.null(cfg$catchment_limit)) NA else cfg$catchment_limit, "catchment_limit", min_value = 1L, default = NA_integer_)
+parallel_concurrency_limit_override <- parse_optional_int(
+  if (is.null(cfg$parallel_concurrency_limit)) NA else cfg$parallel_concurrency_limit,
+  "parallel_concurrency_limit",
+  min_value = 1L,
+  default = NA_integer_
+)
 min_obs <- parse_int_or_stop(as.character(if (is.null(cfg$min_obs)) "365" else cfg$min_obs), "min_obs", min_value = 30L)
 calibration_years <- parse_int_or_stop(as.character(if (is.null(cfg$calibration_years)) min(100L, model_years) else cfg$calibration_years), "calibration_years", min_value = 1L)
 
@@ -182,7 +190,7 @@ catalog <- prepare_source_catalog(
 
 inventory <- catchment_inventory_from_catalog(catalog)
 eligible <- inventory$eligible_ids
-if (is.finite(catchment_limit) && catchment_limit > 0) {
+if (!is.na(catchment_limit) && is.finite(catchment_limit) && catchment_limit > 0) {
   eligible <- utils::head(eligible, catchment_limit)
 }
 if (length(eligible) == 0) stop("No eligible catchments were found for the selected configuration")
@@ -192,8 +200,12 @@ runtime_catalog_path <- file.path(ihacres_output_dir, "manifests", "runtime_cata
 catchment_manifest_path <- file.path(ihacres_output_dir, "manifests", "catchment_manifest.csv")
 saveRDS(runtime_catalog, runtime_catalog_path)
 
-parallel_concurrency_limit <- 110L
-parallel_tasks_this_run <- min(length(eligible), parallel_concurrency_limit)
+parallel_concurrency_limit <- if (!is.na(parallel_concurrency_limit_override) && is.finite(parallel_concurrency_limit_override)) {
+  min(as.integer(parallel_concurrency_limit_override), length(eligible))
+} else {
+  length(eligible)
+}
+parallel_tasks_this_run <- parallel_concurrency_limit
 region_total_catchments <- as.integer(inventory$region_total)
 region_eligible_catchments <- as.integer(inventory$eligible_total)
 
@@ -251,6 +263,7 @@ run_config <- list(
   objective = objective,
   model_type = model_type,
   min_obs = min_obs,
+  catchment_limit = catchment_limit,
   catchment_count = length(eligible),
   region_total_catchments = region_total_catchments,
   region_eligible_catchments = region_eligible_catchments,
@@ -291,6 +304,11 @@ message(sprintf("Start date: %s (format: YYYY-MM-DD)", as.character(start_date))
 message(sprintf("Calibration years: %s (end: %s)", calibration_years, as.character(calibration_end_date)))
 message(sprintf("Simulation years: %s", paste(simulation_years, collapse = ", ")))
 message(sprintf("Eligible catchments for this run: %s", length(eligible)))
+if (!is.na(catchment_limit)) {
+  message(sprintf("Catchment limit applied: %s", catchment_limit))
+} else {
+  message("Catchment limit applied: none (all eligible catchments)")
+}
 message(sprintf("Config written to: %s", config_path))
 message(sprintf("Runtime catalog written to: %s", runtime_catalog_path))
 
