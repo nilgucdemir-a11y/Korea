@@ -33,6 +33,11 @@ All notebooks are organized with clear Databricks cell sections (`# COMMAND ----
   - Merges calibration and simulation outputs
   - Produces summaries by status and by simulation years
 
+- `notebooks/_discover_catchments.R`
+  - Utility notebook to discover catchment files and count catchments
+  - Optionally sets task values with `catchment_count` and catchment lists
+  - Converts catchment `.rds` files to standardized `P/E/Q/Date` inputs
+
 - `notebooks/_common_ihacres.R`
   - Shared helpers for PEQ loading/building, calibration, simulation, and metrics
 
