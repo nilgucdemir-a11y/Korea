@@ -10,19 +10,16 @@
 # COMMAND ----------
 
 if (exists("dbutils")) {
-  dbutils.widgets.text("ihacres_output_dir", "/Volumes/gc_prod_sandbox/mdt_sandbox/r_mdt/Projects/Other/122_2025_KR_IHACRES/R02_Output/ihacres_results/KOR_1000y/", "IHACRES output directory")
-  dbutils.widgets.text("sub_region", "KOR", "Sub-region")
+  dbutils.widgets.text("run_config_path", "", "Run config path from setup task")
 }
 
 # COMMAND ----------
 
-get_param <- function(name, default) {
-  if (exists("dbutils")) return(dbutils.widgets.get(name))
-  default
-}
+run_config_path <- get_widget_or_default("run_config_path", "")
+cfg <- read_run_config_or_stop(run_config_path)
 
-ihacres_output_dir <- get_param("ihacres_output_dir", "/tmp/ihacres/results")
-sub_region <- get_param("sub_region", "KOR")
+ihacres_output_dir <- as.character(cfg_value(cfg, "ihacres_output_dir", "/tmp/ihacres/results"))
+sub_region <- as.character(cfg_value(cfg, "sub_region", "KOR"))
 
 cal_metrics_dir <- file.path(ihacres_output_dir, "calibration_metrics")
 sim_metrics_dir <- file.path(ihacres_output_dir, "simulation_metrics")

@@ -1,12 +1,12 @@
 # Databricks IHACRES workflow (110 parallel catchments)
 
-This folder contains a Databricks workflow scaffold with **separate calibration and simulation stages**.
+This folder contains a Databricks workflow scaffold with **separate calibration and simulation stages** and a simplified user input experience.
 
 ## What is included
 
 - `notebooks/00_setup_and_widgets.R`
   - Installs/validates libraries
-  - Defines widgets (including model type and years widgets)
+  - Defines minimal user widgets
   - Supports two input modes:
     - `use_existing_peq=true` (recommended for Korea, using existing PEQ files)
     - `use_existing_peq=false` (build PEQ from precip/temp/river + weights, for other countries)
@@ -39,11 +39,19 @@ This folder contains a Databricks workflow scaffold with **separate calibration 
 
 ## Key widgets/parameters
 
-- `model_type`: `snow` or `cmd`
-- `calibration_years`: years used for calibration window
-- `simulation_years_csv`: comma-separated simulation windows for comparison (example: `100,500,1000`)
-- `use_existing_peq`: if `true`, load PEQ directly by catchment from `peq_dir`
-- `catalog_rds_path`: optional; normally auto-generated in setup and passed to child tasks
+### Main widgets (user-friendly)
+
+- `country` (example: `KOR`)
+- `model_years` (example: `1000`)
+- `model_type` (`snow` or `cmd`)
+- `start_date` (must be `YYYY-MM-DD`)
+
+### Optional advanced widget
+
+- `advanced_config_json` (optional JSON object for power users)
+  - Use this for custom paths, calibration years, catchment limit, optimizer, etc.
+  - Example:
+    - `{"use_existing_peq":true,"peq_dir":"/Volumes/.../your_peq_dir","catchment_limit":110,"calibration_years":100}`
 
 ## Performance improvements included
 

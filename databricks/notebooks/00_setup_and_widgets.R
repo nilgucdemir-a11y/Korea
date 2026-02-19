@@ -1,7 +1,12 @@
 # Databricks notebook source
 # MAGIC %md
-# MAGIC # IHACRES Setup: widgets + catchment fan-out list
-# MAGIC This notebook prepares run configuration for split calibration/simulation workflow.
+# MAGIC # IHACRES Setup (simple inputs)
+# MAGIC User-facing widgets are intentionally minimal:
+# MAGIC - country
+# MAGIC - model_years
+# MAGIC - model_type (snow/cmd)
+# MAGIC - start_date
+# MAGIC Optional advanced overrides can be supplied as one JSON string.
 
 # COMMAND ----------
 
@@ -10,68 +15,117 @@
 # COMMAND ----------
 
 if (exists("dbutils")) {
-  dbutils.widgets.text("sub_region", "KOR", "Sub-region")
-  dbutils.widgets.dropdown("use_existing_peq", "true", c("true", "false"), "Use existing PEQ files")
-  dbutils.widgets.text("peq_dir", "/Volumes/gc_prod_sandbox/mdt_sandbox/r_mdt/Projects/Other/122_2025_KR_IHACRES/R02_Output/catchments_daily_PTQ_by_RiverID/KOR/", "Existing PEQ directory")
-
-  dbutils.widgets.text("weights_file", "/Volumes/gc_prod_sandbox/mdt_sandbox/r_mdt/Projects/Other/122_2025_KR_IHACRES/R02_Catchmentweights/R02_precip_ops_per_catchment.csv", "Weights CSV (non-PEQ mode)")
-  dbutils.widgets.text("precip_dir", "/Volumes/gc_prod_sandbox/mdt_sandbox/r_mdt/Projects/Other/122_2025_KR_IHACRES/R02_2016R1/sim.precip.data/", "Precip RDS directory (non-PEQ mode)")
-  dbutils.widgets.text("temp_dir", "/Volumes/gc_prod_sandbox/mdt_sandbox/r_mdt/Projects/Other/122_2025_KR_IHACRES/R02_2016R1/sim.temp.data/", "Temp RDS directory (non-PEQ mode)")
-  dbutils.widgets.text("river_dir", "/Volumes/gc_prod_sandbox/mdt_sandbox/r_mdt/Projects/Other/122_2025_KR_IHACRES/R02_2016R1/sim.river.data/", "River RDS directory (non-PEQ mode)")
-  dbutils.widgets.text("ptq_output_dir", "/Volumes/gc_prod_sandbox/mdt_sandbox/r_mdt/Projects/Other/122_2025_KR_IHACRES/R02_Output/catchments_daily_PTQ_by_RiverID/KOR/", "Built PEQ output directory (non-PEQ mode)")
-
-  dbutils.widgets.text("ihacres_output_dir", "/Volumes/gc_prod_sandbox/mdt_sandbox/r_mdt/Projects/Other/122_2025_KR_IHACRES/R02_Output/ihacres_results/KOR_1000y/", "IHACRES output directory")
-  dbutils.widgets.text("start_date", "0000-01-01", "Series start date")
-  dbutils.widgets.text("calibration_years", "100", "Calibration period (years)")
-  dbutils.widgets.text("simulation_years_csv", "100,1000", "Simulation years (CSV)")
-  dbutils.widgets.text("days_per_year", "365", "Days per year for windowing")
-
-  dbutils.widgets.dropdown("write_csv_out", "true", c("true", "false"), "Write PEQ CSV output")
-  dbutils.widgets.text("calibration_samples", "1000", "fitByOptim samples")
-  dbutils.widgets.dropdown("optimization_method", "PORT", c("PORT", "NLOPT_LN_COBYLA"), "Calibration optimization method")
-  dbutils.widgets.dropdown("objective", "kge", c("kge", "NSE"), "Objective")
-  dbutils.widgets.dropdown("model_type", "snow", c("snow", "cmd"), "Model type (snow/cmd)")
-  dbutils.widgets.text("catchment_limit", "110", "Max catchments")
-  dbutils.widgets.text("min_obs", "365", "Minimum complete rows")
+  dbutils.widgets.text("country", "KOR", "Country code (e.g. KOR)")
+  dbutils.widgets.text("model_years", "1000", "Model years (e.g. 1000)")
+  dbutils.widgets.dropdown("model_type", "snow", c("snow", "cmd"), "Model type")
+  dbutils.widgets.text("start_date", "0000-01-01", "Start date (YYYY-MM-DD)")
+  dbutils.widgets.text("advanced_config_json", "", "Optional advanced JSON overrides")
 }
 
 # COMMAND ----------
 
-get_param <- function(name, default) {
-  if (exists("dbutils")) return(dbutils.widgets.get(name))
-  default
+country <- toupper(trimws(get_widget_or_default("country", "KOR")))
+model_years <- parse_int_or_stop(get_widget_or_default("model_years", "1000"), "model_years", min_value = 1L)
+model_type <- tolower(get_widget_or_default("model_type", "snow"))
+start_date <- parse_date_or_stop(get_widget_or_default("start_date", "0000-01-01"), "start_date")
+advanced_cfg <- parse_optional_json_list(get_widget_or_default("advanced_config_json", ""), "advanced_config_json")
+
+if (!(model_type %in% c("snow", "cmd"))) stop("model_type must be one of: snow, cmd")
+
+country_defaults <- function(country_code, years, mtype) {
+  cc <- toupper(trimws(country_code))
+
+  if (cc == "KOR") {
+    return(list(
+      sub_region = "KOR",
+      use_existing_peq = TRUE,
+      peq_dir = "/Volumes/gc_prod_sandbox/mdt_sandbox/r_mdt/Projects/Other/122_2025_KR_IHACRES/R02_Output/catchments_daily_PTQ_by_RiverID/KOR/",
+      weights_file = "/Volumes/gc_prod_sandbox/mdt_sandbox/r_mdt/Projects/Other/122_2025_KR_IHACRES/R02_Catchmentweights/R02_precip_ops_per_catchment.csv",
+      precip_dir = "/Volumes/gc_prod_sandbox/mdt_sandbox/r_mdt/Projects/Other/122_2025_KR_IHACRES/R02_2016R1/sim.precip.data/",
+      temp_dir = "/Volumes/gc_prod_sandbox/mdt_sandbox/r_mdt/Projects/Other/122_2025_KR_IHACRES/R02_2016R1/sim.temp.data/",
+      river_dir = "/Volumes/gc_prod_sandbox/mdt_sandbox/r_mdt/Projects/Other/122_2025_KR_IHACRES/R02_2016R1/sim.river.data/",
+      ptq_output_dir = "/Volumes/gc_prod_sandbox/mdt_sandbox/r_mdt/Projects/Other/122_2025_KR_IHACRES/R02_Output/catchments_daily_PTQ_by_RiverID/KOR/",
+      ihacres_output_dir = sprintf(
+        "/Volumes/gc_prod_sandbox/mdt_sandbox/r_mdt/Projects/Other/122_2025_KR_IHACRES/R02_Output/ihacres_results/%s_%sy_%s/",
+        cc, years, mtype
+      ),
+      calibration_years = min(100L, years),
+      simulation_years = as.integer(c(years)),
+      days_per_year = 365L,
+      write_csv_out = TRUE,
+      calibration_samples = 1000L,
+      optimization_method = "PORT",
+      objective = "kge",
+      catchment_limit = 110L,
+      min_obs = 365L
+    ))
+  }
+
+  list(
+    sub_region = cc,
+    use_existing_peq = FALSE,
+    peq_dir = "",
+    weights_file = "",
+    precip_dir = "",
+    temp_dir = "",
+    river_dir = "",
+    ptq_output_dir = sprintf("/tmp/ihacres/%s/peq", cc),
+    ihacres_output_dir = sprintf("/tmp/ihacres/%s/results_%sy_%s", cc, years, mtype),
+    calibration_years = min(100L, years),
+    simulation_years = as.integer(c(years)),
+    days_per_year = 365L,
+    write_csv_out = TRUE,
+    calibration_samples = 1000L,
+    optimization_method = "PORT",
+    objective = "kge",
+    catchment_limit = 110L,
+    min_obs = 365L
+  )
 }
 
-sub_region <- get_param("sub_region", "KOR")
-use_existing_peq <- parse_bool(get_param("use_existing_peq", "true"), default = TRUE)
-peq_dir <- get_param("peq_dir", "")
-weights_file <- get_param("weights_file", "")
-precip_dir <- get_param("precip_dir", "")
-temp_dir <- get_param("temp_dir", "")
-river_dir <- get_param("river_dir", "")
-ptq_output_dir <- get_param("ptq_output_dir", "/tmp/ihacres/ptq")
-ihacres_output_dir <- get_param("ihacres_output_dir", "/tmp/ihacres/results")
-start_date <- parse_date_or_stop(get_param("start_date", "0000-01-01"), "start_date")
-calibration_years <- parse_int_or_stop(get_param("calibration_years", "100"), "calibration_years", min_value = 1L)
-simulation_years <- parse_years_csv(get_param("simulation_years_csv", "1000"), default = c(1000L))
-days_per_year <- parse_int_or_stop(get_param("days_per_year", "365"), "days_per_year", min_value = 1L)
-write_csv_out <- parse_bool(get_param("write_csv_out", "true"), default = TRUE)
-calibration_samples <- parse_int_or_stop(get_param("calibration_samples", "1000"), "calibration_samples", min_value = 1L)
-optimization_method <- get_param("optimization_method", "PORT")
-objective <- normalize_objective(get_param("objective", "kge"))
-model_type <- tolower(get_param("model_type", "snow"))
-catchment_limit <- parse_int_or_stop(get_param("catchment_limit", "110"), "catchment_limit", min_value = 1L)
-min_obs <- parse_int_or_stop(get_param("min_obs", "365"), "min_obs", min_value = 30L)
+cfg <- merge_named_lists(country_defaults(country, model_years, model_type), advanced_cfg)
+
+sub_region <- toupper(as.character(if (is.null(cfg$sub_region)) country else cfg$sub_region))
+use_existing_peq <- parse_bool(cfg$use_existing_peq, default = TRUE)
+peq_dir <- as.character(if (is.null(cfg$peq_dir)) "" else cfg$peq_dir)
+weights_file <- as.character(if (is.null(cfg$weights_file)) "" else cfg$weights_file)
+precip_dir <- as.character(if (is.null(cfg$precip_dir)) "" else cfg$precip_dir)
+temp_dir <- as.character(if (is.null(cfg$temp_dir)) "" else cfg$temp_dir)
+river_dir <- as.character(if (is.null(cfg$river_dir)) "" else cfg$river_dir)
+ptq_output_dir <- as.character(if (is.null(cfg$ptq_output_dir)) "/tmp/ihacres/ptq" else cfg$ptq_output_dir)
+ihacres_output_dir <- as.character(if (is.null(cfg$ihacres_output_dir)) "/tmp/ihacres/results" else cfg$ihacres_output_dir)
+days_per_year <- parse_int_or_stop(as.character(if (is.null(cfg$days_per_year)) "365" else cfg$days_per_year), "days_per_year", min_value = 1L)
+write_csv_out <- parse_bool(cfg$write_csv_out, default = TRUE)
+calibration_samples <- parse_int_or_stop(as.character(if (is.null(cfg$calibration_samples)) "1000" else cfg$calibration_samples), "calibration_samples", min_value = 1L)
+optimization_method <- as.character(if (is.null(cfg$optimization_method)) "PORT" else cfg$optimization_method)
+objective <- normalize_objective(if (is.null(cfg$objective)) "kge" else cfg$objective)
+model_type <- tolower(as.character(if (is.null(cfg$model_type)) model_type else cfg$model_type))
+catchment_limit <- parse_int_or_stop(as.character(if (is.null(cfg$catchment_limit)) "110" else cfg$catchment_limit), "catchment_limit", min_value = 1L)
+min_obs <- parse_int_or_stop(as.character(if (is.null(cfg$min_obs)) "365" else cfg$min_obs), "min_obs", min_value = 30L)
+calibration_years <- parse_int_or_stop(as.character(if (is.null(cfg$calibration_years)) min(100L, model_years) else cfg$calibration_years), "calibration_years", min_value = 1L)
+
+simulation_years <- if (!is.null(cfg$simulation_years_csv)) {
+  parse_years_csv(cfg$simulation_years_csv, default = c(model_years))
+} else if (!is.null(cfg$simulation_years)) {
+  parse_years_csv(paste(unlist(cfg$simulation_years), collapse = ","), default = c(model_years))
+} else {
+  as.integer(c(model_years))
+}
 
 if (!(model_type %in% c("snow", "cmd"))) stop("model_type must be one of: snow, cmd")
 if (!(tolower(objective) %in% c("kge", "nse"))) stop("objective must be kge or NSE")
 
+if (sub_region != "KOR") {
+  if (use_existing_peq && !nzchar(peq_dir)) {
+    stop("For non-KOR runs with existing PEQ, set peq_dir in advanced_config_json")
+  }
+  if (!use_existing_peq && (!nzchar(weights_file) || !nzchar(precip_dir) || !nzchar(temp_dir) || !nzchar(river_dir))) {
+    stop("For non-KOR runs building from forcing, set weights_file/precip_dir/temp_dir/river_dir in advanced_config_json")
+  }
+}
+
 calibration_end_date <- window_end_from_years(start_date, calibration_years, days_per_year = days_per_year)
-simulation_end_dates <- vapply(
-  simulation_years,
-  function(y) as.character(window_end_from_years(start_date, y, days_per_year = days_per_year)),
-  character(1)
-)
+simulation_end_dates <- vapply(simulation_years, function(y) as.character(window_end_from_years(start_date, y, days_per_year = days_per_year)), character(1))
 
 safe_dir_create(ihacres_output_dir)
 safe_dir_create(file.path(ihacres_output_dir, "peq"))
@@ -95,6 +149,7 @@ ensure_packages_installed()
 library(dplyr)
 library(readr)
 library(jsonlite)
+library(tibble)
 
 catalog <- prepare_source_catalog(
   use_existing_peq = use_existing_peq,
@@ -138,6 +193,8 @@ readr::write_csv(catchment_manifest, catchment_manifest_path)
 catchment_ids_json <- jsonlite::toJSON(as.list(eligible), auto_unbox = TRUE)
 
 run_config <- list(
+  country = country,
+  model_years = model_years,
   sub_region = sub_region,
   use_existing_peq = use_existing_peq,
   peq_dir = peq_dir,
@@ -161,7 +218,8 @@ run_config <- list(
   min_obs = min_obs,
   catchment_count = length(eligible),
   runtime_catalog_path = runtime_catalog_path,
-  catchment_manifest_path = catchment_manifest_path
+  catchment_manifest_path = catchment_manifest_path,
+  start_date_format = "YYYY-MM-DD"
 )
 
 config_path <- file.path(ihacres_output_dir, "run_config.json")
@@ -176,9 +234,10 @@ safe_set_task_value("runtime_catalog_path", runtime_catalog_path)
 safe_set_task_value("catchment_manifest_path", catchment_manifest_path)
 
 message("Setup complete.")
-message(sprintf("Region: %s", sub_region))
+message(sprintf("Country/region: %s", sub_region))
 message(sprintf("Mode: %s", ifelse(use_existing_peq, "Use existing PEQ files", "Build PEQ from forcing files")))
 message(sprintf("Model type: %s", model_type))
+message(sprintf("Start date: %s (format: YYYY-MM-DD)", as.character(start_date)))
 message(sprintf("Calibration years: %s (end: %s)", calibration_years, as.character(calibration_end_date)))
 message(sprintf("Simulation years: %s", paste(simulation_years, collapse = ", ")))
 message(sprintf("Eligible catchments for this run: %s", length(eligible)))

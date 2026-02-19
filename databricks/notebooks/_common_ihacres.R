@@ -33,6 +33,14 @@ parse_bool <- function(x, default = FALSE) {
   tolower(trimws(as.character(x))) %in% c("1", "true", "yes", "y")
 }
 
+get_widget_or_default <- function(name, default = "") {
+  if (!exists("dbutils")) return(default)
+  tryCatch({
+    v <- dbutils.widgets.get(name)
+    if (is.null(v) || !nzchar(as.character(v))) default else v
+  }, error = function(e) default)
+}
+
 parse_date_or_stop <- function(x, field_name) {
   d <- as.Date(x)
   if (is.na(d)) stop(sprintf("Invalid date for %s: %s", field_name, x))
@@ -73,6 +81,33 @@ normalize_objective <- function(x) {
   if (x_l == "kge") return("kge")
   if (x_l == "nse") return("NSE")
   as.character(x)
+}
+
+parse_optional_json_list <- function(x, field_name = "advanced_config_json") {
+  if (is.null(x) || !nzchar(trimws(as.character(x)))) return(list())
+
+  if (!requireNamespace("jsonlite", quietly = TRUE)) {
+    install.packages("jsonlite", repos = "https://cloud.r-project.org")
+  }
+
+  parsed <- tryCatch(
+    jsonlite::fromJSON(as.character(x), simplifyVector = FALSE),
+    error = function(e) stop(sprintf("Invalid JSON in %s: %s", field_name, e$message))
+  )
+
+  if (is.null(parsed)) return(list())
+  if (!is.list(parsed)) stop(sprintf("%s must decode to a JSON object", field_name))
+  parsed
+}
+
+merge_named_lists <- function(base_list, override_list) {
+  out <- base_list
+  if (length(override_list) == 0) return(out)
+
+  for (nm in names(override_list)) {
+    out[[nm]] <- override_list[[nm]]
+  }
+  out
 }
 
 window_end_from_years <- function(start_date, years, days_per_year = 365L) {
@@ -451,6 +486,34 @@ resolve_catalog <- function(
     temp_dir = temp_dir,
     river_dir = river_dir
   )
+}
+
+read_run_config_or_stop <- function(run_config_path) {
+  if (is.null(run_config_path) || !nzchar(as.character(run_config_path))) {
+    stop("run_config_path must be provided")
+  }
+  if (!file.exists(run_config_path)) {
+    stop(sprintf("run_config_path does not exist: %s", run_config_path))
+  }
+
+  if (!requireNamespace("jsonlite", quietly = TRUE)) {
+    install.packages("jsonlite", repos = "https://cloud.r-project.org")
+  }
+
+  cfg <- jsonlite::fromJSON(run_config_path, simplifyVector = FALSE)
+  if (!is.list(cfg)) stop("Invalid run config JSON format")
+  cfg
+}
+
+cfg_value <- function(cfg, name, default = NULL) {
+  if (is.null(cfg[[name]])) return(default)
+  v <- cfg[[name]]
+
+  if (is.list(v) && length(v) == 1 && !is.list(v[[1]])) {
+    return(v[[1]])
+  }
+
+  v
 }
 
 eligible_catchments_from_catalog <- function(catalog, catchment_limit = 110L) {

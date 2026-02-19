@@ -11,57 +11,44 @@
 
 if (exists("dbutils")) {
   dbutils.widgets.text("catchment_id", "", "Catchment ID")
-  dbutils.widgets.text("sub_region", "KOR", "Sub-region")
-  dbutils.widgets.dropdown("use_existing_peq", "true", c("true", "false"), "Use existing PEQ files")
-  dbutils.widgets.text("peq_dir", "/Volumes/gc_prod_sandbox/mdt_sandbox/r_mdt/Projects/Other/122_2025_KR_IHACRES/R02_Output/catchments_daily_PTQ_by_RiverID/KOR/", "Existing PEQ directory")
-
-  dbutils.widgets.text("weights_file", "/Volumes/gc_prod_sandbox/mdt_sandbox/r_mdt/Projects/Other/122_2025_KR_IHACRES/R02_Catchmentweights/R02_precip_ops_per_catchment.csv", "Weights CSV (non-PEQ mode)")
-  dbutils.widgets.text("precip_dir", "/Volumes/gc_prod_sandbox/mdt_sandbox/r_mdt/Projects/Other/122_2025_KR_IHACRES/R02_2016R1/sim.precip.data/", "Precip RDS directory (non-PEQ mode)")
-  dbutils.widgets.text("temp_dir", "/Volumes/gc_prod_sandbox/mdt_sandbox/r_mdt/Projects/Other/122_2025_KR_IHACRES/R02_2016R1/sim.temp.data/", "Temp RDS directory (non-PEQ mode)")
-  dbutils.widgets.text("river_dir", "/Volumes/gc_prod_sandbox/mdt_sandbox/r_mdt/Projects/Other/122_2025_KR_IHACRES/R02_2016R1/sim.river.data/", "River RDS directory (non-PEQ mode)")
-  dbutils.widgets.text("ptq_output_dir", "/Volumes/gc_prod_sandbox/mdt_sandbox/r_mdt/Projects/Other/122_2025_KR_IHACRES/R02_Output/catchments_daily_PTQ_by_RiverID/KOR/", "Built PEQ output directory (non-PEQ mode)")
-  dbutils.widgets.text("catalog_rds_path", "", "Runtime catalog RDS path (optional)")
-
-  dbutils.widgets.text("ihacres_output_dir", "/Volumes/gc_prod_sandbox/mdt_sandbox/r_mdt/Projects/Other/122_2025_KR_IHACRES/R02_Output/ihacres_results/KOR_1000y/", "IHACRES output directory")
-  dbutils.widgets.text("start_date", "0000-01-01", "Series start date")
-  dbutils.widgets.text("simulation_years_csv", "100,1000", "Simulation years (CSV)")
-  dbutils.widgets.text("days_per_year", "365", "Days per year for windowing")
-  dbutils.widgets.dropdown("objective", "kge", c("kge", "NSE"), "Objective")
-  dbutils.widgets.dropdown("model_type", "snow", c("snow", "cmd"), "Model type (snow/cmd)")
-  dbutils.widgets.text("min_obs", "365", "Minimum complete rows")
+  dbutils.widgets.text("run_config_path", "", "Run config path from setup task")
 }
 
 # COMMAND ----------
 
-get_param <- function(name, default) {
-  if (exists("dbutils")) return(dbutils.widgets.get(name))
-  default
-}
-
-catchment_id <- get_param("catchment_id", "")
-sub_region <- get_param("sub_region", "KOR")
-use_existing_peq <- parse_bool(get_param("use_existing_peq", "true"), default = TRUE)
-peq_dir <- get_param("peq_dir", "")
-weights_file <- get_param("weights_file", "")
-precip_dir <- get_param("precip_dir", "")
-temp_dir <- get_param("temp_dir", "")
-river_dir <- get_param("river_dir", "")
-ptq_output_dir <- get_param("ptq_output_dir", "/tmp/ihacres/ptq")
-catalog_rds_path <- get_param("catalog_rds_path", "")
-ihacres_output_dir <- get_param("ihacres_output_dir", "/tmp/ihacres/results")
-start_date <- parse_date_or_stop(get_param("start_date", "0000-01-01"), "start_date")
-simulation_years <- parse_years_csv(get_param("simulation_years_csv", "1000"), default = c(1000L))
-days_per_year <- parse_int_or_stop(get_param("days_per_year", "365"), "days_per_year", min_value = 1L)
-objective <- normalize_objective(get_param("objective", "kge"))
-model_type <- tolower(get_param("model_type", "snow"))
-min_obs <- parse_int_or_stop(get_param("min_obs", "365"), "min_obs", min_value = 30L)
+catchment_id <- get_widget_or_default("catchment_id", "")
+run_config_path <- get_widget_or_default("run_config_path", "")
 
 if (!nzchar(catchment_id)) stop("catchment_id must be provided")
+cfg <- read_run_config_or_stop(run_config_path)
+
+sub_region <- toupper(as.character(cfg_value(cfg, "sub_region", "KOR")))
+use_existing_peq <- parse_bool(cfg_value(cfg, "use_existing_peq", TRUE), default = TRUE)
+peq_dir <- as.character(cfg_value(cfg, "peq_dir", ""))
+weights_file <- as.character(cfg_value(cfg, "weights_file", ""))
+precip_dir <- as.character(cfg_value(cfg, "precip_dir", ""))
+temp_dir <- as.character(cfg_value(cfg, "temp_dir", ""))
+river_dir <- as.character(cfg_value(cfg, "river_dir", ""))
+ptq_output_dir <- as.character(cfg_value(cfg, "ptq_output_dir", "/tmp/ihacres/ptq"))
+ihacres_output_dir <- as.character(cfg_value(cfg, "ihacres_output_dir", "/tmp/ihacres/results"))
+catalog_rds_path <- as.character(cfg_value(cfg, "runtime_catalog_path", file.path(ihacres_output_dir, "manifests", "runtime_catalog.rds")))
+start_date <- parse_date_or_stop(as.character(cfg_value(cfg, "start_date", "0000-01-01")), "start_date")
+
+simulation_years <- if (!is.null(cfg$simulation_years_csv)) {
+  parse_years_csv(cfg$simulation_years_csv, default = c(1000L))
+} else if (!is.null(cfg$simulation_years)) {
+  parse_years_csv(paste(unlist(cfg$simulation_years), collapse = ","), default = c(1000L))
+} else {
+  c(1000L)
+}
+
+days_per_year <- parse_int_or_stop(as.character(cfg_value(cfg, "days_per_year", 365L)), "days_per_year", min_value = 1L)
+objective <- normalize_objective(cfg_value(cfg, "objective", "kge"))
+model_type <- tolower(as.character(cfg_value(cfg, "model_type", "snow")))
+min_obs <- parse_int_or_stop(as.character(cfg_value(cfg, "min_obs", 365L)), "min_obs", min_value = 30L)
+
 if (!(model_type %in% c("snow", "cmd"))) stop("model_type must be snow or cmd")
 if (!(tolower(objective) %in% c("kge", "nse"))) stop("objective must be kge or NSE")
-if (!nzchar(catalog_rds_path)) {
-  catalog_rds_path <- file.path(ihacres_output_dir, "manifests", "runtime_catalog.rds")
-}
 
 run_started_utc <- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ", tz = "UTC")
 
