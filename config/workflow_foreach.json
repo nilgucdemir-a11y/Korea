@@ -1,0 +1,119 @@
+{
+  "name": "IHACRES_Korea_110_Catchments_ForEach",
+  "description": "IHACRES workflow using Databricks native ForEach task to run 110 catchments in parallel. Alternative to the ThreadPoolExecutor orchestrator approach.",
+  "tags": {
+    "project": "122_2025_KR_IHACRES",
+    "region": "KOR",
+    "model": "hydromad-IHACRES"
+  },
+  "max_concurrent_runs": 1,
+  "tasks": [
+    {
+      "task_key": "install_libraries",
+      "notebook_task": {
+        "notebook_path": "/Workspace/Repos/ihacres-workflow/notebooks/00_install_libraries",
+        "source": "WORKSPACE"
+      },
+      "job_cluster_key": "ihacres_cluster",
+      "timeout_seconds": 3600,
+      "max_retries": 1
+    },
+    {
+      "task_key": "build_catchment_data",
+      "depends_on": [
+        { "task_key": "install_libraries" }
+      ],
+      "notebook_task": {
+        "notebook_path": "/Workspace/Repos/ihacres-workflow/notebooks/01_build_catchment_data",
+        "source": "WORKSPACE",
+        "base_parameters": {
+          "weights_file": "/Volumes/gc_prod_sandbox/mdt_sandbox/r_mdt/Projects/Other/122_2025_KR_IHACRES/R02_Catchmentweights/R02_precip_ops_per_catchment.csv",
+          "precip_dir": "/Volumes/gc_prod_sandbox/mdt_sandbox/r_mdt/Projects/Other/122_2025_KR_IHACRES/R02_2016R1/sim.precip.data/",
+          "temp_dir": "/Volumes/gc_prod_sandbox/mdt_sandbox/r_mdt/Projects/Other/122_2025_KR_IHACRES/R02_2016R1/sim.temp.data/",
+          "river_dir": "/Volumes/gc_prod_sandbox/mdt_sandbox/r_mdt/Projects/Other/122_2025_KR_IHACRES/R02_2016R1/sim.river.data/",
+          "output_dir": "/Volumes/gc_prod_sandbox/mdt_sandbox/r_mdt/Projects/Other/122_2025_KR_IHACRES/R02_Output/catchments_daily_PTQ_by_RiverID/KOR/",
+          "sub_region": "KOR",
+          "start_date": "0000-01-01",
+          "write_csv": "TRUE"
+        }
+      },
+      "job_cluster_key": "ihacres_cluster",
+      "timeout_seconds": 7200
+    },
+    {
+      "task_key": "generate_catchment_list",
+      "description": "Emit the list of catchment IDs for the ForEach task",
+      "depends_on": [
+        { "task_key": "build_catchment_data" }
+      ],
+      "notebook_task": {
+        "notebook_path": "/Workspace/Repos/ihacres-workflow/notebooks/05_generate_foreach_inputs",
+        "source": "WORKSPACE",
+        "base_parameters": {
+          "input_dir": "/Volumes/gc_prod_sandbox/mdt_sandbox/r_mdt/Projects/Other/122_2025_KR_IHACRES/R02_Output/catchments_daily_PTQ_by_RiverID/KOR/"
+        }
+      },
+      "job_cluster_key": "ihacres_cluster",
+      "timeout_seconds": 600
+    },
+    {
+      "task_key": "foreach_ihacres",
+      "description": "ForEach over catchments — runs 02_ihacres_analysis for each",
+      "depends_on": [
+        { "task_key": "generate_catchment_list" }
+      ],
+      "for_each_task": {
+        "inputs": "{{tasks.generate_catchment_list.values.catchment_ids}}",
+        "concurrency": 110,
+        "task": {
+          "task_key": "ihacres_single",
+          "notebook_task": {
+            "notebook_path": "/Workspace/Repos/ihacres-workflow/notebooks/02_ihacres_analysis",
+            "source": "WORKSPACE",
+            "base_parameters": {
+              "catchment_id": "{{input}}",
+              "input_dir": "/Volumes/gc_prod_sandbox/mdt_sandbox/r_mdt/Projects/Other/122_2025_KR_IHACRES/R02_Output/catchments_daily_PTQ_by_RiverID/KOR/",
+              "results_dir": "/Volumes/gc_prod_sandbox/mdt_sandbox/r_mdt/Projects/Other/122_2025_KR_IHACRES/R02_Output/ihacres_results/KOR/",
+              "optim_samples": "1000",
+              "start_date": "0000-01-01",
+              "cal_end_date": "0100-12-31",
+              "run_end_date": "1000-12-31"
+            }
+          },
+          "job_cluster_key": "ihacres_cluster",
+          "timeout_seconds": 14400
+        }
+      }
+    },
+    {
+      "task_key": "aggregate_results",
+      "depends_on": [
+        { "task_key": "foreach_ihacres" }
+      ],
+      "notebook_task": {
+        "notebook_path": "/Workspace/Repos/ihacres-workflow/notebooks/04_aggregate_results",
+        "source": "WORKSPACE",
+        "base_parameters": {
+          "results_dir": "/Volumes/gc_prod_sandbox/mdt_sandbox/r_mdt/Projects/Other/122_2025_KR_IHACRES/R02_Output/ihacres_results/KOR/"
+        }
+      },
+      "job_cluster_key": "ihacres_cluster",
+      "timeout_seconds": 3600
+    }
+  ],
+  "job_clusters": [
+    {
+      "job_cluster_key": "ihacres_cluster",
+      "new_cluster": {
+        "spark_version": "15.4.x-scala2.12",
+        "node_type_id": "Standard_DS4_v2",
+        "num_workers": 4,
+        "spark_conf": {},
+        "custom_tags": {
+          "project": "IHACRES_Korea"
+        }
+      }
+    }
+  ],
+  "format": "MULTI_TASK"
+}
