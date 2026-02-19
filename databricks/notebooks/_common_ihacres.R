@@ -10,7 +10,6 @@ ensure_packages_installed <- function() {
   )
 
   missing_cran <- required_cran[!vapply(required_cran, requireNamespace, logical(1), quietly = TRUE)]
-
   if (length(missing_cran) > 0) {
     install.packages(missing_cran, repos = "https://cloud.r-project.org")
   }
@@ -30,13 +29,8 @@ ensure_packages_installed <- function() {
 
 parse_bool <- function(x, default = FALSE) {
   if (is.logical(x) && length(x) == 1 && !is.na(x)) return(x)
-  if (is.null(x) || is.na(x) || !nzchar(x)) return(default)
+  if (is.null(x) || is.na(x) || !nzchar(as.character(x))) return(default)
   tolower(trimws(as.character(x))) %in% c("1", "true", "yes", "y")
-}
-
-safe_dir_create <- function(path) {
-  if (!dir.exists(path)) dir.create(path, recursive = TRUE, showWarnings = FALSE)
-  invisible(path)
 }
 
 parse_date_or_stop <- function(x, field_name) {
@@ -45,10 +39,78 @@ parse_date_or_stop <- function(x, field_name) {
   d
 }
 
+parse_int_or_stop <- function(x, field_name, min_value = 1L, default = NA_integer_) {
+  if ((is.null(x) || !nzchar(as.character(x))) && !is.na(default)) return(default)
+  v <- suppressWarnings(as.integer(x))
+  if (!is.finite(v) || is.na(v) || v < min_value) {
+    stop(sprintf("%s must be an integer >= %s", field_name, min_value))
+  }
+  v
+}
+
+parse_years_csv <- function(x, default = c(1000L)) {
+  txt <- if (is.null(x) || !nzchar(trimws(as.character(x)))) {
+    paste(default, collapse = ",")
+  } else {
+    as.character(x)
+  }
+
+  parts <- unlist(strsplit(txt, "[,;\\s]+"))
+  parts <- parts[nzchar(parts)]
+  years <- suppressWarnings(as.integer(parts))
+  years <- years[is.finite(years) & !is.na(years) & years > 0]
+
+  if (length(years) == 0) {
+    stop("simulation_years_csv did not contain any positive integer year values")
+  }
+
+  sort(unique(years))
+}
+
+normalize_objective <- function(x) {
+  if (is.null(x) || !nzchar(as.character(x))) return("kge")
+  x_l <- tolower(as.character(x))
+  if (x_l == "kge") return("kge")
+  if (x_l == "nse") return("NSE")
+  as.character(x)
+}
+
+window_end_from_years <- function(start_date, years, days_per_year = 365L) {
+  start_year <- suppressWarnings(as.integer(format(start_date, "%Y")))
+  start_md <- format(start_date, "%m-%d")
+
+  if (is.finite(start_year) && !is.na(start_year) && identical(start_md, "01-01")) {
+    candidate <- as.Date(sprintf("%04d-12-31", start_year + years))
+    if (!is.na(candidate)) return(candidate)
+  }
+
+  start_date + as.integer(years * days_per_year) - 1L
+}
+
+safe_dir_create <- function(path) {
+  if (!dir.exists(path)) dir.create(path, recursive = TRUE, showWarnings = FALSE)
+  invisible(path)
+}
+
+safe_set_task_value <- function(key, value) {
+  if (!exists("dbutils")) return(FALSE)
+  tryCatch({
+    dbutils.jobs.taskValues.set(key = key, value = value)
+    TRUE
+  }, error = function(e) {
+    message(sprintf("Unable to set task value '%s': %s", key, e$message))
+    FALSE
+  })
+}
+
 # COMMAND ----------
 
 get_numeric_series_from_rds <- function(rds_path) {
   obj <- readRDS(rds_path)
+
+  if (inherits(obj, "zoo")) {
+    return(as.numeric(zoo::coredata(obj)[, 1]))
+  }
 
   if (is.numeric(obj) && is.vector(obj)) {
     return(as.numeric(obj))
@@ -67,6 +129,7 @@ get_numeric_series_from_rds <- function(rds_path) {
   if (is.list(obj)) {
     for (el in obj) {
       if (is.numeric(el)) return(as.numeric(el))
+      if (inherits(el, "zoo")) return(as.numeric(zoo::coredata(el)[, 1]))
       if (is.data.frame(el)) {
         numcols <- which(vapply(el, is.numeric, logical(1)))
         if (length(numcols) >= 1) return(as.numeric(el[[numcols[1]]]))
@@ -76,8 +139,6 @@ get_numeric_series_from_rds <- function(rds_path) {
 
   stop(sprintf("Cannot extract numeric data from %s", rds_path))
 }
-
-# COMMAND ----------
 
 index_rds_files <- function(dir_path, id_pattern) {
   files <- list.files(dir_path, pattern = "\\.rds$", full.names = TRUE)
@@ -98,7 +159,105 @@ index_rds_files <- function(dir_path, id_pattern) {
   stats::setNames(files, ids)
 }
 
+index_peq_files <- function(peq_dir) {
+  files <- list.files(peq_dir, pattern = "\\.(rds|csv)$", full.names = TRUE, ignore.case = TRUE)
+  if (length(files) == 0) return(stats::setNames(character(0), character(0)))
+
+  ext <- tolower(tools::file_ext(files))
+  ids <- tools::file_path_sans_ext(basename(files))
+  priority <- ifelse(ext == "rds", 1L, 2L)
+  ord <- order(priority, ids, basename(files))
+
+  files <- files[ord]
+  ids <- ids[ord]
+  keep <- !duplicated(ids)
+  stats::setNames(files[keep], ids[keep])
+}
+
+normalize_peq_df <- function(df, catchment_id = NA_character_) {
+  if (inherits(df, "zoo")) {
+    df <- data.frame(Date = as.Date(zoo::index(df)), zoo::coredata(df), check.names = FALSE)
+  }
+
+  if (is.matrix(df)) {
+    df <- as.data.frame(df, stringsAsFactors = FALSE)
+  }
+
+  if (!is.data.frame(df)) {
+    stop("PEQ object must be a data.frame, matrix, or zoo object")
+  }
+
+  names_lower <- tolower(names(df))
+  pick_col <- function(candidates) {
+    idx <- which(names_lower %in% tolower(candidates))
+    if (length(idx) == 0) return(NA_integer_)
+    idx[1]
+  }
+
+  date_idx <- pick_col(c("Date", "date", "datetime", "time"))
+  p_idx <- pick_col(c("P", "precip_mean", "precip", "rain", "rainfall"))
+  e_idx <- pick_col(c("E", "temp_mean", "temp", "temperature", "evap", "et"))
+  q_idx <- pick_col(c("Q", "q", "flow", "discharge", "streamflow", "q_obs"))
+  c_idx <- pick_col(c("catchment_id", "catchment", "river_id"))
+
+  if (is.na(date_idx) || is.na(p_idx) || is.na(e_idx) || is.na(q_idx)) {
+    stop("PEQ data must contain Date/P/E/Q-compatible columns")
+  }
+
+  out <- tibble::tibble(
+    Date = as.Date(df[[date_idx]]),
+    P = as.numeric(df[[p_idx]]),
+    E = as.numeric(df[[e_idx]]),
+    Q = as.numeric(df[[q_idx]])
+  )
+
+  out <- dplyr::filter(out, !is.na(Date))
+  out <- dplyr::arrange(out, Date)
+
+  if (is.na(catchment_id) || !nzchar(as.character(catchment_id))) {
+    if (!is.na(c_idx)) {
+      unique_ids <- unique(as.character(df[[c_idx]]))
+      unique_ids <- unique_ids[nzchar(unique_ids)]
+      catchment_id <- if (length(unique_ids) > 0) unique_ids[1] else NA_character_
+    }
+  }
+
+  out$catchment_id <- as.character(catchment_id)
+  out
+}
+
+read_peq_file <- function(file_path, catchment_id = NA_character_) {
+  ext <- tolower(tools::file_ext(file_path))
+
+  obj <- if (ext == "rds") {
+    readRDS(file_path)
+  } else if (ext == "csv") {
+    readr::read_csv(file_path, show_col_types = FALSE)
+  } else {
+    stop(sprintf("Unsupported PEQ file extension: %s", ext))
+  }
+
+  normalize_peq_df(obj, catchment_id = catchment_id)
+}
+
 # COMMAND ----------
+
+load_weights_for_region <- function(weights_file, sub_region) {
+  if (!file.exists(weights_file)) {
+    stop(sprintf("Weights file does not exist: %s", weights_file))
+  }
+
+  weights <- readr::read_csv(weights_file, show_col_types = FALSE, col_types = readr::cols(.default = "c")) %>%
+    dplyr::filter(sub.region == sub_region) %>%
+    dplyr::mutate(weight = as.numeric(weight))
+
+  required_cols <- c("catchment_id", "op.id", "weight")
+  if (!all(required_cols %in% names(weights))) {
+    stop("Weights file must contain columns: catchment_id, op.id, weight")
+  }
+
+  weights
+}
 
 build_daily_ptq_for_catchment <- function(
   catchment_id,
@@ -130,26 +289,17 @@ build_daily_ptq_for_catchment <- function(
   weights_norm <- weights / sum(weights, na.rm = TRUE)
 
   precip_series <- lapply(available, function(op) {
-    if (op %in% names(precip_files_index)) {
-      get_numeric_series_from_rds(precip_files_index[[op]])
-    } else {
-      NULL
-    }
+    if (op %in% names(precip_files_index)) get_numeric_series_from_rds(precip_files_index[[op]]) else NULL
   })
   names(precip_series) <- available
 
   temp_series <- lapply(available, function(op) {
-    if (op %in% names(temp_files_index)) {
-      get_numeric_series_from_rds(temp_files_index[[op]])
-    } else {
-      NULL
-    }
+    if (op %in% names(temp_files_index)) get_numeric_series_from_rds(temp_files_index[[op]]) else NULL
   })
   names(temp_series) <- available
 
   lens <- c(vapply(precip_series, length, numeric(1)), vapply(temp_series, length, numeric(1)))
   lens <- lens[is.finite(lens) & lens > 0]
-
   if (length(lens) == 0) {
     return(list(status = "skip", reason = "No valid precip/temp time series"))
   }
@@ -196,50 +346,136 @@ build_daily_ptq_for_catchment <- function(
   q_final <- if (!is.null(q_vec)) trim_pad(q_vec, common_len) else rep(NA_real_, common_len)
   dates <- seq.Date(start_date, by = "day", length.out = common_len)
 
-  df_out <- tibble::tibble(
+  out <- tibble::tibble(
     Date = dates,
-    precip_mean = precip_mean,
-    temp_mean = temp_mean,
+    P = precip_mean,
+    E = temp_mean,
     Q = q_final,
     catchment_id = catchment_id
   )
 
-  list(status = "ok", data = df_out, reason = NA_character_)
+  list(status = "ok", data = out, reason = NA_character_)
+}
+
+prepare_source_catalog <- function(
+  use_existing_peq,
+  sub_region,
+  weights_file,
+  peq_dir,
+  precip_dir,
+  temp_dir,
+  river_dir
+) {
+  if (use_existing_peq) {
+    if (!dir.exists(peq_dir)) stop(sprintf("PEQ directory does not exist: %s", peq_dir))
+    peq_index <- index_peq_files(peq_dir)
+    return(list(mode = "existing_peq", peq_index = peq_index))
+  }
+
+  if (!dir.exists(precip_dir)) stop(sprintf("Precip directory does not exist: %s", precip_dir))
+  if (!dir.exists(temp_dir)) stop(sprintf("Temp directory does not exist: %s", temp_dir))
+  if (!dir.exists(river_dir)) stop(sprintf("River directory does not exist: %s", river_dir))
+
+  weights <- load_weights_for_region(weights_file, sub_region)
+  precip_index <- index_rds_files(precip_dir, ".*_(G[0-9]+_[0-9]+)\\.rds$")
+  temp_index <- index_rds_files(temp_dir, ".*_(G[0-9]+_[0-9]+)\\.rds$")
+  river_index <- index_rds_files(river_dir, ".*_(R[0-9]+_[^\\.]+)\\.rds$")
+
+  list(
+    mode = "build_from_forcing",
+    weights_df = weights,
+    precip_files_index = precip_index,
+    temp_files_index = temp_index,
+    river_files_index = river_index
+  )
+}
+
+eligible_catchments_from_catalog <- function(catalog, catchment_limit = 110L) {
+  if (identical(catalog$mode, "existing_peq")) {
+    catchments <- sort(names(catalog$peq_index))
+  } else {
+    forcing_ids <- union(names(catalog$precip_files_index), names(catalog$temp_files_index))
+    catchments <- sort(unique(catalog$weights_df$catchment_id))
+
+    has_inputs <- function(cid) {
+      opids <- catalog$weights_df$op.id[catalog$weights_df$catchment_id == cid]
+      has_forcing <- any(opids %in% forcing_ids, na.rm = TRUE)
+      has_q <- cid %in% names(catalog$river_files_index)
+      has_forcing && has_q
+    }
+
+    catchments <- catchments[vapply(catchments, has_inputs, logical(1))]
+  }
+
+  if (is.finite(catchment_limit) && catchment_limit > 0) {
+    catchments <- utils::head(catchments, catchment_limit)
+  }
+
+  catchments
+}
+
+resolve_peq_for_catchment <- function(catchment_id, catalog, start_date) {
+  if (identical(catalog$mode, "existing_peq")) {
+    peq_path <- catalog$peq_index[[catchment_id]]
+    if (is.null(peq_path) || !nzchar(peq_path)) {
+      return(list(status = "skip", reason = "No PEQ file found for catchment"))
+    }
+
+    peq_df <- read_peq_file(peq_path, catchment_id = catchment_id)
+    return(list(status = "ok", data = peq_df, source = peq_path, reason = NA_character_))
+  }
+
+  built <- build_daily_ptq_for_catchment(
+    catchment_id = catchment_id,
+    weights_df = catalog$weights_df,
+    precip_files_index = catalog$precip_files_index,
+    temp_files_index = catalog$temp_files_index,
+    river_files_index = catalog$river_files_index,
+    start_date = start_date
+  )
+
+  if (!identical(built$status, "ok")) {
+    return(list(status = built$status, reason = built$reason))
+  }
+
+  list(status = "ok", data = built$data, source = "built_from_forcing", reason = NA_character_)
 }
 
 # COMMAND ----------
 
-fit_ihacres_model <- function(
-  daily_df,
-  start_date,
-  end_date,
-  samples = 1000,
-  optimization_method = "PORT",
-  objective = "kge",
-  model_type = "snow",
-  min_obs = 365
-) {
-  model_df <- dplyr::transmute(
-    daily_df,
-    Date = as.Date(Date),
-    P = precip_mean,
-    E = temp_mean,
-    Q = Q
-  )
+prepare_model_ts <- function(peq_df, start_date, end_date, min_obs = 365L, require_q = TRUE) {
+  df <- peq_df %>%
+    dplyr::transmute(
+      Date = as.Date(Date),
+      P = as.numeric(P),
+      E = as.numeric(E),
+      Q = as.numeric(Q)
+    ) %>%
+    dplyr::filter(!is.na(Date), Date >= start_date, Date <= end_date)
 
-  model_df <- dplyr::filter(model_df, !is.na(Date))
-  model_ts <- zoo::zoo(model_df[, c("P", "E", "Q")], order.by = model_df$Date)
-  model_ts <- zoo::window.zoo(model_ts, start = start_date, end = end_date)
-  model_ts <- model_ts[stats::complete.cases(model_ts)]
-
-  if (NROW(model_ts) < min_obs) {
-    return(list(status = "skip", reason = sprintf("Not enough complete rows (%s)", NROW(model_ts))))
+  if (nrow(df) == 0) {
+    return(list(status = "skip", reason = "No rows in selected date window"))
   }
 
+  if (require_q) {
+    df <- dplyr::filter(df, stats::complete.cases(P, E, Q))
+  } else {
+    df <- dplyr::filter(df, stats::complete.cases(P, E))
+  }
+
+  if (nrow(df) < min_obs) {
+    return(list(status = "skip", reason = sprintf("Not enough rows after filtering (%s)", nrow(df))))
+  }
+
+  model_ts <- zoo::zoo(df[, c("P", "E", "Q")], order.by = df$Date)
+  list(status = "ok", model_ts = model_ts, n_rows = nrow(df), reason = NA_character_)
+}
+
+build_hydromad_model <- function(model_ts, model_type = "snow", objective = "kge") {
   model_type <- tolower(model_type)
 
   if (model_type == "snow") {
-    model <- hydromad::hydromad(
+    hydromad::hydromad(
       model_ts,
       sma = "snow",
       routing = "expuh",
@@ -263,7 +499,7 @@ fit_ihacres_model <- function(
       cs = c(0.8, 1.2)
     )
   } else {
-    model <- hydromad::hydromad(
+    hydromad::hydromad(
       model_ts,
       sma = "cmd",
       routing = "expuh",
@@ -279,8 +515,18 @@ fit_ihacres_model <- function(
       M_0 = 85
     )
   }
+}
 
+calibrate_hydromad_model <- function(
+  model_ts,
+  samples = 1000L,
+  optimization_method = "PORT",
+  objective = "kge",
+  model_type = "snow"
+) {
+  model <- build_hydromad_model(model_ts = model_ts, model_type = model_type, objective = objective)
   optimizer_used <- optimization_method
+
   fit <- tryCatch(
     hydromad::fitByOptim(model, samples = samples, method = optimization_method),
     error = function(err) {
@@ -293,65 +539,85 @@ fit_ihacres_model <- function(
     }
   )
 
-  sim <- tryCatch(stats::fitted(fit), error = function(e) NULL)
-  if (is.null(sim)) sim <- tryCatch(stats::predict(fit), error = function(e) NULL)
+  list(status = "ok", fit = fit, optimizer_used = optimizer_used)
+}
 
-  if (is.null(sim)) {
-    return(list(
-      status = "error",
-      reason = "Unable to extract simulated streamflow from fitted model"
-    ))
+extract_sim_vector <- function(sim_obj) {
+  if (is.null(sim_obj)) return(NULL)
+
+  if (inherits(sim_obj, "zoo")) {
+    core <- zoo::coredata(sim_obj)
+    if (is.matrix(core)) return(as.numeric(core[, 1]))
+    return(as.numeric(core))
   }
 
-  if (inherits(sim, "zoo")) {
-    sim_q <- as.numeric(zoo::coredata(sim))
-  } else if (is.numeric(sim)) {
-    sim_q <- as.numeric(sim)
-  } else if (is.matrix(sim) || is.data.frame(sim)) {
-    sim_q <- as.numeric(sim[, 1])
-  } else {
-    return(list(status = "error", reason = "Unsupported simulated streamflow object type"))
+  if (is.numeric(sim_obj)) {
+    return(as.numeric(sim_obj))
+  }
+
+  if (is.matrix(sim_obj) || is.data.frame(sim_obj)) {
+    return(as.numeric(sim_obj[, 1]))
+  }
+
+  NULL
+}
+
+simulate_with_fit <- function(fit, model_ts, model_type = "snow", objective = "kge") {
+  sim_obj <- tryCatch(stats::predict(fit, newdata = model_ts), error = function(e) NULL)
+  method_used <- "predict_fit_newdata"
+
+  if (is.null(sim_obj)) {
+    pars <- tryCatch(stats::coef(fit), error = function(e) NULL)
+    model <- build_hydromad_model(model_ts = model_ts, model_type = model_type, objective = objective)
+    model_with_pars <- if (is.null(pars)) {
+      NULL
+    } else {
+      tryCatch(do.call(stats::update, c(list(object = model), as.list(pars))), error = function(e) NULL)
+    }
+
+    sim_obj <- tryCatch(stats::predict(model_with_pars), error = function(e) NULL)
+    method_used <- "predict_model_with_fitted_params"
+  }
+
+  if (is.null(sim_obj)) {
+    sim_obj <- tryCatch(stats::fitted(fit), error = function(e) NULL)
+    method_used <- "fitted_fit_fallback"
+  }
+
+  sim_q <- extract_sim_vector(sim_obj)
+  if (is.null(sim_q)) {
+    return(list(status = "error", reason = "Unable to extract simulated streamflow", method_used = method_used))
   }
 
   obs_q <- as.numeric(zoo::coredata(model_ts[, "Q"]))
-  if (length(sim_q) != length(obs_q)) {
-    len <- min(length(sim_q), length(obs_q))
-    sim_q <- sim_q[seq_len(len)]
-    obs_q <- obs_q[seq_len(len)]
-  }
+  dates <- as.Date(zoo::index(model_ts))
 
-  valid <- is.finite(sim_q) & is.finite(obs_q)
-  if (sum(valid) < 20) {
-    metrics <- list(KGE = NA_real_, NSE = NA_real_, RMSE = NA_real_)
-  } else {
-    metrics <- list(
-      KGE = hydroGOF::KGE(sim_q[valid], obs_q[valid], na.rm = TRUE),
-      NSE = hydroGOF::NSE(sim_q[valid], obs_q[valid], na.rm = TRUE),
-      RMSE = hydroGOF::rmse(sim_q[valid], obs_q[valid], na.rm = TRUE)
-    )
+  len <- min(length(sim_q), length(obs_q), length(dates))
+  if (len <= 0) {
+    return(list(status = "error", reason = "No overlapping simulation/observation rows", method_used = method_used))
   }
 
   list(
     status = "ok",
-    fit = fit,
-    model_ts = model_ts,
-    sim_q = sim_q,
-    obs_q = obs_q,
-    metrics = metrics,
-    optimizer_used = optimizer_used,
-    n_obs = sum(valid)
+    sim_q = sim_q[seq_len(len)],
+    obs_q = obs_q[seq_len(len)],
+    dates = dates[seq_len(len)],
+    method_used = method_used
   )
 }
 
-# COMMAND ----------
+evaluate_simulation_metrics <- function(sim_q, obs_q) {
+  valid <- is.finite(sim_q) & is.finite(obs_q)
+  n_obs <- sum(valid)
 
-safe_set_task_value <- function(key, value) {
-  if (!exists("dbutils")) return(FALSE)
-  tryCatch({
-    dbutils.jobs.taskValues.set(key = key, value = value)
-    TRUE
-  }, error = function(e) {
-    message(sprintf("Unable to set task value '%s': %s", key, e$message))
-    FALSE
-  })
+  if (n_obs < 20) {
+    return(list(KGE = NA_real_, NSE = NA_real_, RMSE = NA_real_, n_obs = n_obs))
+  }
+
+  list(
+    KGE = hydroGOF::KGE(sim_q[valid], obs_q[valid], na.rm = TRUE),
+    NSE = hydroGOF::NSE(sim_q[valid], obs_q[valid], na.rm = TRUE),
+    RMSE = hydroGOF::rmse(sim_q[valid], obs_q[valid], na.rm = TRUE),
+    n_obs = n_obs
+  )
 }

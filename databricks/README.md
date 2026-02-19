@@ -1,71 +1,74 @@
 # Databricks IHACRES workflow (110 parallel catchments)
 
-This folder contains a complete Databricks workflow scaffold to run IHACRES analysis for Korea catchments in parallel.
+This folder contains a Databricks workflow scaffold with **separate calibration and simulation stages**.
 
 ## What is included
 
 - `notebooks/00_setup_and_widgets.R`
-  - Installs required R libraries (including `hydromad` from GitHub when missing)
-  - Defines runtime parameters via widgets
-  - Filters and validates catchments for the selected region (`KOR` by default)
-  - Exposes catchment IDs as a task value for fan-out execution
+  - Installs/validates libraries
+  - Defines widgets (including model type and years widgets)
+  - Supports two input modes:
+    - `use_existing_peq=true` (recommended for Korea, using existing PEQ files)
+    - `use_existing_peq=false` (build PEQ from precip/temp/river + weights, for other countries)
+  - Builds catchment fan-out list
 
-- `notebooks/01_run_ihacres_for_catchment.R`
-  - Runs one catchment end-to-end:
-    - builds weighted daily `P`, `T`, `Q`
-    - saves PTQ outputs (`.rds`, optional `.csv`)
-    - calibrates IHACRES (`snow` or `cmd`) for the requested date window
-    - saves fitted model, simulated-vs-observed time series, and metrics
+- `notebooks/01_calibrate_ihacres_for_catchment.R`
+  - One catchment calibration only
+  - Saves calibrated model (`.rds`) + calibration metrics
 
-- `notebooks/02_merge_results.R`
-  - Merges all per-catchment metrics files into run-level summary outputs
+- `notebooks/02_simulate_ihacres_for_catchment.R`
+  - One catchment simulation only
+  - Loads saved calibration model
+  - Runs simulation for all `simulation_years_csv` windows (for comparison)
+  - Saves simulation metrics + simulated-vs-observed time series per year-window
+
+- `notebooks/03_merge_results.R`
+  - Merges calibration and simulation outputs
+  - Produces summaries by status and by simulation years
 
 - `notebooks/_common_ihacres.R`
-  - Shared helper functions used by all workflow notebooks
+  - Shared helpers for PEQ loading/building, calibration, simulation, and metrics
 
 - `workflows/ihacres_110_parallel_workflow.json`
   - Databricks Job definition:
     1. setup
-    2. parallel for-each (concurrency = 110)
-    3. merge results
+    2. calibrate in parallel (for-each, concurrency 110)
+    3. simulate in parallel (for-each, concurrency 110)
+    4. merge results
+
+## Key widgets/parameters
+
+- `model_type`: `snow` or `cmd`
+- `calibration_years`: years used for calibration window
+- `simulation_years_csv`: comma-separated simulation windows for comparison (example: `100,500,1000`)
+- `use_existing_peq`: if `true`, load PEQ directly by catchment from `peq_dir`
 
 ## Deploy in Databricks
 
-1. Import/sync notebooks into workspace, e.g.:
+1. Import/sync notebooks into workspace:
    - `/Workspace/Shared/ihacres/notebooks/00_setup_and_widgets`
-   - `/Workspace/Shared/ihacres/notebooks/01_run_ihacres_for_catchment`
-   - `/Workspace/Shared/ihacres/notebooks/02_merge_results`
+   - `/Workspace/Shared/ihacres/notebooks/01_calibrate_ihacres_for_catchment`
+   - `/Workspace/Shared/ihacres/notebooks/02_simulate_ihacres_for_catchment`
+   - `/Workspace/Shared/ihacres/notebooks/03_merge_results`
    - `/Workspace/Shared/ihacres/notebooks/_common_ihacres`
 
 2. Open `workflows/ihacres_110_parallel_workflow.json` and update:
-   - cluster `node_type_id` to your workspace node type
-   - notebook paths if you use a different workspace location
+   - `node_type_id`
+   - notebook paths if needed
 
-3. Create the job using the JSON (Jobs API/UI import) and run.
-
-## Default runtime parameters
-
-- Region: `KOR`
-- Catchments: first `110` eligible catchments (`catchment_limit = 110`)
-- Time window: `0000-01-01` to `1000-12-31`
-- IHACRES model: `snow`
-- Objective: `kge`
-- Optimizer: `PORT` (fallback when non-PORT optimizer fails)
-- Samples: `1000`
+3. Import/create the job and run.
 
 ## Outputs
 
 Inside `ihacres_output_dir`:
 
-- `metrics/<catchment_id>_metrics.csv`
-- `timeseries/<catchment_id>_sim_vs_obs.csv`
-- `models/<catchment_id>_fit.rds`
-- `logs/<catchment_id>_run_log.json`
-- `ihacres_metrics_all_catchments.csv`
-- `ihacres_status_summary.csv`
-- `ihacres_run_summary.csv`
-
-Inside `ptq_output_dir`:
-
-- `<catchment_id>.rds`
-- `<catchment_id>.csv` (optional)
+- `peq/<catchment_id>.rds` (canonical PEQ used by tasks)
+- `calibration_models/<catchment_id>_fit.rds`
+- `calibration_metrics/<catchment_id>_calibration_metrics.csv`
+- `calibration_timeseries/<catchment_id>_calibration_sim_vs_obs.csv`
+- `simulation_metrics/<catchment_id>_simulation_metrics.csv`
+- `simulation_timeseries/<catchment_id>_sim_<years>y.csv`
+- `summaries/calibration_metrics_all_catchments.csv`
+- `summaries/simulation_metrics_all_catchments.csv`
+- `summaries/simulation_performance_by_year.csv`
+- `summaries/run_summary.csv`

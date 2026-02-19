@@ -8,6 +8,14 @@
       "default": "KOR"
     },
     {
+      "name": "use_existing_peq",
+      "default": "true"
+    },
+    {
+      "name": "peq_dir",
+      "default": "/Volumes/gc_prod_sandbox/mdt_sandbox/r_mdt/Projects/Other/122_2025_KR_IHACRES/R02_Output/catchments_daily_PTQ_by_RiverID/KOR/"
+    },
+    {
       "name": "weights_file",
       "default": "/Volumes/gc_prod_sandbox/mdt_sandbox/r_mdt/Projects/Other/122_2025_KR_IHACRES/R02_Catchmentweights/R02_precip_ops_per_catchment.csv"
     },
@@ -36,8 +44,16 @@
       "default": "0000-01-01"
     },
     {
-      "name": "end_date",
-      "default": "1000-12-31"
+      "name": "calibration_years",
+      "default": "100"
+    },
+    {
+      "name": "simulation_years_csv",
+      "default": "100,1000"
+    },
+    {
+      "name": "days_per_year",
+      "default": "365"
     },
     {
       "name": "write_csv_out",
@@ -91,6 +107,8 @@
         "notebook_path": "/Workspace/Shared/ihacres/notebooks/00_setup_and_widgets",
         "base_parameters": {
           "sub_region": "{{job.parameters.sub_region}}",
+          "use_existing_peq": "{{job.parameters.use_existing_peq}}",
+          "peq_dir": "{{job.parameters.peq_dir}}",
           "weights_file": "{{job.parameters.weights_file}}",
           "precip_dir": "{{job.parameters.precip_dir}}",
           "temp_dir": "{{job.parameters.temp_dir}}",
@@ -98,7 +116,9 @@
           "ptq_output_dir": "{{job.parameters.ptq_output_dir}}",
           "ihacres_output_dir": "{{job.parameters.ihacres_output_dir}}",
           "start_date": "{{job.parameters.start_date}}",
-          "end_date": "{{job.parameters.end_date}}",
+          "calibration_years": "{{job.parameters.calibration_years}}",
+          "simulation_years_csv": "{{job.parameters.simulation_years_csv}}",
+          "days_per_year": "{{job.parameters.days_per_year}}",
           "write_csv_out": "{{job.parameters.write_csv_out}}",
           "calibration_samples": "{{job.parameters.calibration_samples}}",
           "optimization_method": "{{job.parameters.optimization_method}}",
@@ -110,7 +130,7 @@
       }
     },
     {
-      "task_key": "run_catchments_parallel",
+      "task_key": "calibrate_catchments_parallel",
       "depends_on": [
         {
           "task_key": "setup_environment"
@@ -120,13 +140,15 @@
         "inputs": "{{tasks.setup_environment.values.catchment_ids_json}}",
         "concurrency": 110,
         "task": {
-          "task_key": "run_single_catchment",
+          "task_key": "calibrate_single_catchment",
           "job_cluster_key": "ihacres_shared_cluster",
           "notebook_task": {
-            "notebook_path": "/Workspace/Shared/ihacres/notebooks/01_run_ihacres_for_catchment",
+            "notebook_path": "/Workspace/Shared/ihacres/notebooks/01_calibrate_ihacres_for_catchment",
             "base_parameters": {
               "catchment_id": "{{input}}",
               "sub_region": "{{job.parameters.sub_region}}",
+              "use_existing_peq": "{{job.parameters.use_existing_peq}}",
+              "peq_dir": "{{job.parameters.peq_dir}}",
               "weights_file": "{{job.parameters.weights_file}}",
               "precip_dir": "{{job.parameters.precip_dir}}",
               "temp_dir": "{{job.parameters.temp_dir}}",
@@ -134,7 +156,8 @@
               "ptq_output_dir": "{{job.parameters.ptq_output_dir}}",
               "ihacres_output_dir": "{{job.parameters.ihacres_output_dir}}",
               "start_date": "{{job.parameters.start_date}}",
-              "end_date": "{{job.parameters.end_date}}",
+              "calibration_years": "{{job.parameters.calibration_years}}",
+              "days_per_year": "{{job.parameters.days_per_year}}",
               "write_csv_out": "{{job.parameters.write_csv_out}}",
               "calibration_samples": "{{job.parameters.calibration_samples}}",
               "optimization_method": "{{job.parameters.optimization_method}}",
@@ -147,15 +170,52 @@
       }
     },
     {
+      "task_key": "simulate_catchments_parallel",
+      "depends_on": [
+        {
+          "task_key": "calibrate_catchments_parallel"
+        }
+      ],
+      "for_each_task": {
+        "inputs": "{{tasks.setup_environment.values.catchment_ids_json}}",
+        "concurrency": 110,
+        "task": {
+          "task_key": "simulate_single_catchment",
+          "job_cluster_key": "ihacres_shared_cluster",
+          "notebook_task": {
+            "notebook_path": "/Workspace/Shared/ihacres/notebooks/02_simulate_ihacres_for_catchment",
+            "base_parameters": {
+              "catchment_id": "{{input}}",
+              "sub_region": "{{job.parameters.sub_region}}",
+              "use_existing_peq": "{{job.parameters.use_existing_peq}}",
+              "peq_dir": "{{job.parameters.peq_dir}}",
+              "weights_file": "{{job.parameters.weights_file}}",
+              "precip_dir": "{{job.parameters.precip_dir}}",
+              "temp_dir": "{{job.parameters.temp_dir}}",
+              "river_dir": "{{job.parameters.river_dir}}",
+              "ptq_output_dir": "{{job.parameters.ptq_output_dir}}",
+              "ihacres_output_dir": "{{job.parameters.ihacres_output_dir}}",
+              "start_date": "{{job.parameters.start_date}}",
+              "simulation_years_csv": "{{job.parameters.simulation_years_csv}}",
+              "days_per_year": "{{job.parameters.days_per_year}}",
+              "objective": "{{job.parameters.objective}}",
+              "model_type": "{{job.parameters.model_type}}",
+              "min_obs": "{{job.parameters.min_obs}}"
+            }
+          }
+        }
+      }
+    },
+    {
       "task_key": "merge_results",
       "depends_on": [
         {
-          "task_key": "run_catchments_parallel"
+          "task_key": "simulate_catchments_parallel"
         }
       ],
       "job_cluster_key": "ihacres_shared_cluster",
       "notebook_task": {
-        "notebook_path": "/Workspace/Shared/ihacres/notebooks/02_merge_results",
+        "notebook_path": "/Workspace/Shared/ihacres/notebooks/03_merge_results",
         "base_parameters": {
           "ihacres_output_dir": "{{job.parameters.ihacres_output_dir}}",
           "sub_region": "{{job.parameters.sub_region}}"

@@ -1,0 +1,293 @@
+# Databricks notebook source
+# MAGIC %md
+# MAGIC # Calibrate IHACRES for one catchment
+# MAGIC Runs only calibration and saves fitted model for later simulation.
+
+# COMMAND ----------
+
+# MAGIC %run ./_common_ihacres
+
+# COMMAND ----------
+
+if (exists("dbutils")) {
+  dbutils.widgets.text("catchment_id", "", "Catchment ID")
+  dbutils.widgets.text("sub_region", "KOR", "Sub-region")
+  dbutils.widgets.dropdown("use_existing_peq", "true", c("true", "false"), "Use existing PEQ files")
+  dbutils.widgets.text("peq_dir", "/Volumes/gc_prod_sandbox/mdt_sandbox/r_mdt/Projects/Other/122_2025_KR_IHACRES/R02_Output/catchments_daily_PTQ_by_RiverID/KOR/", "Existing PEQ directory")
+
+  dbutils.widgets.text("weights_file", "/Volumes/gc_prod_sandbox/mdt_sandbox/r_mdt/Projects/Other/122_2025_KR_IHACRES/R02_Catchmentweights/R02_precip_ops_per_catchment.csv", "Weights CSV (non-PEQ mode)")
+  dbutils.widgets.text("precip_dir", "/Volumes/gc_prod_sandbox/mdt_sandbox/r_mdt/Projects/Other/122_2025_KR_IHACRES/R02_2016R1/sim.precip.data/", "Precip RDS directory (non-PEQ mode)")
+  dbutils.widgets.text("temp_dir", "/Volumes/gc_prod_sandbox/mdt_sandbox/r_mdt/Projects/Other/122_2025_KR_IHACRES/R02_2016R1/sim.temp.data/", "Temp RDS directory (non-PEQ mode)")
+  dbutils.widgets.text("river_dir", "/Volumes/gc_prod_sandbox/mdt_sandbox/r_mdt/Projects/Other/122_2025_KR_IHACRES/R02_2016R1/sim.river.data/", "River RDS directory (non-PEQ mode)")
+  dbutils.widgets.text("ptq_output_dir", "/Volumes/gc_prod_sandbox/mdt_sandbox/r_mdt/Projects/Other/122_2025_KR_IHACRES/R02_Output/catchments_daily_PTQ_by_RiverID/KOR/", "Built PEQ output directory (non-PEQ mode)")
+
+  dbutils.widgets.text("ihacres_output_dir", "/Volumes/gc_prod_sandbox/mdt_sandbox/r_mdt/Projects/Other/122_2025_KR_IHACRES/R02_Output/ihacres_results/KOR_1000y/", "IHACRES output directory")
+  dbutils.widgets.text("start_date", "0000-01-01", "Series start date")
+  dbutils.widgets.text("calibration_years", "100", "Calibration period (years)")
+  dbutils.widgets.text("days_per_year", "365", "Days per year for windowing")
+  dbutils.widgets.dropdown("write_csv_out", "true", c("true", "false"), "Write PEQ CSV output")
+  dbutils.widgets.text("calibration_samples", "1000", "fitByOptim samples")
+  dbutils.widgets.dropdown("optimization_method", "PORT", c("PORT", "NLOPT_LN_COBYLA"), "Calibration optimization method")
+  dbutils.widgets.dropdown("objective", "kge", c("kge", "NSE"), "Objective")
+  dbutils.widgets.dropdown("model_type", "snow", c("snow", "cmd"), "Model type (snow/cmd)")
+  dbutils.widgets.text("min_obs", "365", "Minimum complete rows")
+}
+
+# COMMAND ----------
+
+get_param <- function(name, default) {
+  if (exists("dbutils")) return(dbutils.widgets.get(name))
+  default
+}
+
+catchment_id <- get_param("catchment_id", "")
+sub_region <- get_param("sub_region", "KOR")
+use_existing_peq <- parse_bool(get_param("use_existing_peq", "true"), default = TRUE)
+peq_dir <- get_param("peq_dir", "")
+weights_file <- get_param("weights_file", "")
+precip_dir <- get_param("precip_dir", "")
+temp_dir <- get_param("temp_dir", "")
+river_dir <- get_param("river_dir", "")
+ptq_output_dir <- get_param("ptq_output_dir", "/tmp/ihacres/ptq")
+ihacres_output_dir <- get_param("ihacres_output_dir", "/tmp/ihacres/results")
+start_date <- parse_date_or_stop(get_param("start_date", "0000-01-01"), "start_date")
+calibration_years <- parse_int_or_stop(get_param("calibration_years", "100"), "calibration_years", min_value = 1L)
+days_per_year <- parse_int_or_stop(get_param("days_per_year", "365"), "days_per_year", min_value = 1L)
+write_csv_out <- parse_bool(get_param("write_csv_out", "true"), default = TRUE)
+calibration_samples <- parse_int_or_stop(get_param("calibration_samples", "1000"), "calibration_samples", min_value = 1L)
+optimization_method <- get_param("optimization_method", "PORT")
+objective <- normalize_objective(get_param("objective", "kge"))
+model_type <- tolower(get_param("model_type", "snow"))
+min_obs <- parse_int_or_stop(get_param("min_obs", "365"), "min_obs", min_value = 30L)
+
+if (!nzchar(catchment_id)) stop("catchment_id must be provided")
+if (!(model_type %in% c("snow", "cmd"))) stop("model_type must be snow or cmd")
+if (!(tolower(objective) %in% c("kge", "nse"))) stop("objective must be kge or NSE")
+
+calibration_end_date <- window_end_from_years(start_date, calibration_years, days_per_year = days_per_year)
+run_started_utc <- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ", tz = "UTC")
+
+safe_dir_create(ihacres_output_dir)
+safe_dir_create(file.path(ihacres_output_dir, "peq"))
+safe_dir_create(file.path(ihacres_output_dir, "calibration_models"))
+safe_dir_create(file.path(ihacres_output_dir, "calibration_metrics"))
+safe_dir_create(file.path(ihacres_output_dir, "calibration_timeseries"))
+safe_dir_create(file.path(ihacres_output_dir, "calibration_logs"))
+
+if (!use_existing_peq) safe_dir_create(ptq_output_dir)
+
+ensure_packages_installed()
+
+library(dplyr)
+library(readr)
+library(tibble)
+library(jsonlite)
+library(zoo)
+library(hydromad)
+library(hydroGOF)
+
+peq_rds_path <- file.path(ihacres_output_dir, "peq", paste0(catchment_id, ".rds"))
+peq_csv_path <- file.path(ihacres_output_dir, "peq", paste0(catchment_id, ".csv"))
+ptq_fallback_rds <- file.path(ptq_output_dir, paste0(catchment_id, ".rds"))
+ptq_fallback_csv <- file.path(ptq_output_dir, paste0(catchment_id, ".csv"))
+fit_path <- file.path(ihacres_output_dir, "calibration_models", paste0(catchment_id, "_fit.rds"))
+cal_ts_path <- file.path(ihacres_output_dir, "calibration_timeseries", paste0(catchment_id, "_calibration_sim_vs_obs.csv"))
+metrics_path <- file.path(ihacres_output_dir, "calibration_metrics", paste0(catchment_id, "_calibration_metrics.csv"))
+log_path <- file.path(ihacres_output_dir, "calibration_logs", paste0(catchment_id, "_calibration_log.json"))
+
+result_row <- tryCatch({
+  catalog <- prepare_source_catalog(
+    use_existing_peq = use_existing_peq,
+    sub_region = sub_region,
+    weights_file = weights_file,
+    peq_dir = peq_dir,
+    precip_dir = precip_dir,
+    temp_dir = temp_dir,
+    river_dir = river_dir
+  )
+
+  peq_result <- resolve_peq_for_catchment(catchment_id = catchment_id, catalog = catalog, start_date = start_date)
+  if (!identical(peq_result$status, "ok")) {
+    tibble::tibble(
+      catchment_id = catchment_id,
+      status = peq_result$status,
+      reason = peq_result$reason,
+      model_type = model_type,
+      objective = objective,
+      optimizer = NA_character_,
+      calibration_years = calibration_years,
+      calibration_start_date = as.character(start_date),
+      calibration_end_date = as.character(calibration_end_date),
+      n_rows_peq = NA_integer_,
+      n_rows_calibration = NA_integer_,
+      n_obs_metrics = NA_integer_,
+      KGE = NA_real_,
+      NSE = NA_real_,
+      RMSE = NA_real_,
+      peq_path = NA_character_,
+      fit_path = NA_character_,
+      calibration_timeseries_path = NA_character_,
+      run_started_utc = run_started_utc,
+      run_finished_utc = format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ", tz = "UTC")
+    )
+  } else {
+    peq_df <- peq_result$data
+    saveRDS(peq_df, peq_rds_path)
+    if (write_csv_out) readr::write_csv(peq_df, peq_csv_path)
+
+    if (!use_existing_peq) {
+      saveRDS(peq_df, ptq_fallback_rds)
+      if (write_csv_out) readr::write_csv(peq_df, ptq_fallback_csv)
+    }
+
+    ts_result <- prepare_model_ts(
+      peq_df = peq_df,
+      start_date = start_date,
+      end_date = calibration_end_date,
+      min_obs = min_obs,
+      require_q = TRUE
+    )
+
+    if (!identical(ts_result$status, "ok")) {
+      tibble::tibble(
+        catchment_id = catchment_id,
+        status = ts_result$status,
+        reason = ts_result$reason,
+        model_type = model_type,
+        objective = objective,
+        optimizer = NA_character_,
+        calibration_years = calibration_years,
+        calibration_start_date = as.character(start_date),
+        calibration_end_date = as.character(calibration_end_date),
+        n_rows_peq = nrow(peq_df),
+        n_rows_calibration = NA_integer_,
+        n_obs_metrics = NA_integer_,
+        KGE = NA_real_,
+        NSE = NA_real_,
+        RMSE = NA_real_,
+        peq_path = peq_rds_path,
+        fit_path = NA_character_,
+        calibration_timeseries_path = NA_character_,
+        run_started_utc = run_started_utc,
+        run_finished_utc = format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ", tz = "UTC")
+      )
+    } else {
+      cal_result <- calibrate_hydromad_model(
+        model_ts = ts_result$model_ts,
+        samples = calibration_samples,
+        optimization_method = optimization_method,
+        objective = objective,
+        model_type = model_type
+      )
+
+      saveRDS(cal_result$fit, fit_path)
+
+      sim_result <- simulate_with_fit(
+        fit = cal_result$fit,
+        model_ts = ts_result$model_ts,
+        model_type = model_type,
+        objective = objective
+      )
+
+      if (!identical(sim_result$status, "ok")) {
+        tibble::tibble(
+          catchment_id = catchment_id,
+          status = "error",
+          reason = sim_result$reason,
+          model_type = model_type,
+          objective = objective,
+          optimizer = cal_result$optimizer_used,
+          calibration_years = calibration_years,
+          calibration_start_date = as.character(start_date),
+          calibration_end_date = as.character(calibration_end_date),
+          n_rows_peq = nrow(peq_df),
+          n_rows_calibration = ts_result$n_rows,
+          n_obs_metrics = NA_integer_,
+          KGE = NA_real_,
+          NSE = NA_real_,
+          RMSE = NA_real_,
+          peq_path = peq_rds_path,
+          fit_path = fit_path,
+          calibration_timeseries_path = NA_character_,
+          run_started_utc = run_started_utc,
+          run_finished_utc = format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ", tz = "UTC")
+        )
+      } else {
+        metrics <- evaluate_simulation_metrics(sim_result$sim_q, sim_result$obs_q)
+
+        cal_ts <- tibble::tibble(
+          Date = sim_result$dates,
+          Q_obs = sim_result$obs_q,
+          Q_sim = sim_result$sim_q,
+          catchment_id = catchment_id,
+          stage = "calibration"
+        )
+        readr::write_csv(cal_ts, cal_ts_path)
+
+        tibble::tibble(
+          catchment_id = catchment_id,
+          status = "ok",
+          reason = NA_character_,
+          model_type = model_type,
+          objective = objective,
+          optimizer = cal_result$optimizer_used,
+          calibration_years = calibration_years,
+          calibration_start_date = as.character(start_date),
+          calibration_end_date = as.character(calibration_end_date),
+          n_rows_peq = nrow(peq_df),
+          n_rows_calibration = ts_result$n_rows,
+          n_obs_metrics = metrics$n_obs,
+          KGE = as.numeric(metrics$KGE),
+          NSE = as.numeric(metrics$NSE),
+          RMSE = as.numeric(metrics$RMSE),
+          peq_path = peq_rds_path,
+          fit_path = fit_path,
+          calibration_timeseries_path = cal_ts_path,
+          run_started_utc = run_started_utc,
+          run_finished_utc = format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ", tz = "UTC")
+        )
+      }
+    }
+  }
+}, error = function(e) {
+  tibble::tibble(
+    catchment_id = catchment_id,
+    status = "error",
+    reason = as.character(e$message),
+    model_type = model_type,
+    objective = objective,
+    optimizer = NA_character_,
+    calibration_years = calibration_years,
+    calibration_start_date = as.character(start_date),
+    calibration_end_date = as.character(calibration_end_date),
+    n_rows_peq = NA_integer_,
+    n_rows_calibration = NA_integer_,
+    n_obs_metrics = NA_integer_,
+    KGE = NA_real_,
+    NSE = NA_real_,
+    RMSE = NA_real_,
+    peq_path = NA_character_,
+    fit_path = NA_character_,
+    calibration_timeseries_path = NA_character_,
+    run_started_utc = run_started_utc,
+    run_finished_utc = format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ", tz = "UTC")
+  )
+})
+
+readr::write_csv(result_row, metrics_path)
+
+run_log <- list(
+  catchment_id = catchment_id,
+  status = result_row$status[[1]],
+  reason = result_row$reason[[1]],
+  metrics_path = metrics_path,
+  fit_path = result_row$fit_path[[1]],
+  finished_utc = result_row$run_finished_utc[[1]]
+)
+writeLines(jsonlite::toJSON(run_log, auto_unbox = TRUE, pretty = TRUE), log_path)
+
+safe_set_task_value("calibration_status", result_row$status[[1]])
+safe_set_task_value("calibration_metrics_path", metrics_path)
+safe_set_task_value("fit_path", result_row$fit_path[[1]])
+
+print(result_row)
