@@ -1,0 +1,24 @@
+bundle:
+  name: ihacres-korea
+
+variables:
+  spark_version:
+    description: Databricks Runtime version (with R support)
+    default: "15.4.x-scala2.12"
+  node_type_id:
+    description: Node type for job clusters
+    default: "i3.xlarge"
+  ihacres_concurrency:
+    description: Max concurrent catchment runs
+    default: 110
+
+include:
+  - resources/*.yml
+
+targets:
+  dev:
+    default: true
+    workspace:
+      # Uses DATABRICKS_HOST + DATABRICKS_TOKEN (or auth profile) when deploying.
+      root_path: /Users/${workspace.current_user.userName}/.bundle/${bundle.name}/${bundle.target}
+

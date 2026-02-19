@@ -1,0 +1,103 @@
+resources:
+  jobs:
+    ihacres_korea_110_catchments:
+      name: ihacres_korea_110_catchments
+      max_concurrent_runs: 1
+
+      parameters:
+        - name: sub_region
+          default: "KOR"
+
+        # ---- Inputs (Unity Catalog Volumes or DBFS) ----
+        - name: weights_file
+          default: "/Volumes/gc_prod_sandbox/mdt_sandbox/r_mdt/Projects/Other/122_2025_KR_IHACRES/R02_Catchmentweights/R02_precip_ops_per_catchment.csv"
+        - name: precip_dir
+          default: "/Volumes/gc_prod_sandbox/mdt_sandbox/r_mdt/Projects/Other/122_2025_KR_IHACRES/R02_2016R1/sim.precip.data/"
+        - name: temp_dir
+          default: "/Volumes/gc_prod_sandbox/mdt_sandbox/r_mdt/Projects/Other/122_2025_KR_IHACRES/R02_2016R1/sim.temp.data/"
+        - name: river_dir
+          default: "/Volumes/gc_prod_sandbox/mdt_sandbox/r_mdt/Projects/Other/122_2025_KR_IHACRES/R02_2016R1/sim.river.data/"
+
+        # ---- Intermediate output (daily P/T/Q per catchment) ----
+        - name: ptq_output_dir
+          default: "/Volumes/gc_prod_sandbox/mdt_sandbox/r_mdt/Projects/Other/122_2025_KR_IHACRES/R02_Output/catchments_daily_PTQ_by_RiverID/KOR/"
+        - name: write_csv_out
+          default: "true"
+        - name: start_date
+          default: "0000-01-01"
+
+        # ---- IHACRES run configuration ----
+        - name: analysis_years
+          default: "1000"
+        - name: samples
+          default: "1000"
+        - name: sma_model
+          default: "snow"
+        - name: routing_model
+          default: "expuh"
+        - name: objective
+          default: "kge"
+        - name: optim_method
+          default: "PORT"
+
+        # ---- Final outputs (one folder per catchment) ----
+        - name: ihacres_output_dir
+          default: "/Volumes/gc_prod_sandbox/mdt_sandbox/r_mdt/Projects/Other/122_2025_KR_IHACRES/R02_Output/ihacres_results/KOR_1000y/"
+
+      tasks:
+        - task_key: build_daily_ptq
+          timeout_seconds: 86400
+          notebook_task:
+            notebook_path: ../notebooks/01_build_daily_ptq.R
+            base_parameters:
+              sub_region: "{{job.parameters.sub_region}}"
+              weights_file: "{{job.parameters.weights_file}}"
+              precip_dir: "{{job.parameters.precip_dir}}"
+              temp_dir: "{{job.parameters.temp_dir}}"
+              river_dir: "{{job.parameters.river_dir}}"
+              output_dir: "{{job.parameters.ptq_output_dir}}"
+              write_csv_out: "{{job.parameters.write_csv_out}}"
+              start_date: "{{job.parameters.start_date}}"
+          new_cluster:
+            spark_version: ${var.spark_version}
+            node_type_id: ${var.node_type_id}
+            num_workers: 0
+            spark_conf:
+              spark.databricks.cluster.profile: singleNode
+              spark.master: "local[*]"
+            custom_tags:
+              ResourceClass: SingleNode
+
+        - task_key: ihacres_fanout
+          depends_on:
+            - task_key: build_daily_ptq
+          for_each_task:
+            # JSON array of catchment IDs set by build_daily_ptq via taskValues.
+            inputs: "{{tasks.build_daily_ptq.values.catchment_ids}}"
+            concurrency: ${var.ihacres_concurrency}
+            task:
+              task_key: run_ihacres_one
+              timeout_seconds: 86400
+              notebook_task:
+                notebook_path: ../notebooks/02_run_ihacres_catchment.R
+                base_parameters:
+                  catchment_id: "{{input}}"
+                  ptq_input_dir: "{{job.parameters.ptq_output_dir}}"
+                  output_dir: "{{job.parameters.ihacres_output_dir}}"
+                  start_date: "{{job.parameters.start_date}}"
+                  analysis_years: "{{job.parameters.analysis_years}}"
+                  samples: "{{job.parameters.samples}}"
+                  sma_model: "{{job.parameters.sma_model}}"
+                  routing_model: "{{job.parameters.routing_model}}"
+                  objective: "{{job.parameters.objective}}"
+                  optim_method: "{{job.parameters.optim_method}}"
+              new_cluster:
+                spark_version: ${var.spark_version}
+                node_type_id: ${var.node_type_id}
+                num_workers: 0
+                spark_conf:
+                  spark.databricks.cluster.profile: singleNode
+                  spark.master: "local[*]"
+                custom_tags:
+                  ResourceClass: SingleNode
+
