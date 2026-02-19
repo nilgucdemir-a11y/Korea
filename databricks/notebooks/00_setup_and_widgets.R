@@ -161,13 +161,22 @@ catalog <- prepare_source_catalog(
   river_dir = river_dir
 )
 
-eligible <- eligible_catchments_from_catalog(catalog, catchment_limit = catchment_limit)
+inventory <- catchment_inventory_from_catalog(catalog)
+eligible <- inventory$eligible_ids
+if (is.finite(catchment_limit) && catchment_limit > 0) {
+  eligible <- utils::head(eligible, catchment_limit)
+}
 if (length(eligible) == 0) stop("No eligible catchments were found for the selected configuration")
 
 runtime_catalog <- subset_catalog_for_catchments(catalog, eligible)
 runtime_catalog_path <- file.path(ihacres_output_dir, "manifests", "runtime_catalog.rds")
 catchment_manifest_path <- file.path(ihacres_output_dir, "manifests", "catchment_manifest.csv")
 saveRDS(runtime_catalog, runtime_catalog_path)
+
+parallel_concurrency_limit <- 110L
+parallel_tasks_this_run <- min(length(eligible), parallel_concurrency_limit)
+region_total_catchments <- as.integer(inventory$region_total)
+region_eligible_catchments <- as.integer(inventory$eligible_total)
 
 catchment_manifest <- if (identical(runtime_catalog$mode, "existing_peq")) {
   tibble::tibble(
@@ -217,6 +226,10 @@ run_config <- list(
   model_type = model_type,
   min_obs = min_obs,
   catchment_count = length(eligible),
+  region_total_catchments = region_total_catchments,
+  region_eligible_catchments = region_eligible_catchments,
+  parallel_concurrency_limit = parallel_concurrency_limit,
+  parallel_tasks_this_run = parallel_tasks_this_run,
   runtime_catalog_path = runtime_catalog_path,
   catchment_manifest_path = catchment_manifest_path,
   start_date_format = "YYYY-MM-DD"
@@ -232,6 +245,10 @@ safe_set_task_value("calibration_end_date", as.character(calibration_end_date))
 safe_set_task_value("simulation_years_csv_normalized", paste(simulation_years, collapse = ","))
 safe_set_task_value("runtime_catalog_path", runtime_catalog_path)
 safe_set_task_value("catchment_manifest_path", catchment_manifest_path)
+safe_set_task_value("region_total_catchments", as.character(region_total_catchments))
+safe_set_task_value("region_eligible_catchments", as.character(region_eligible_catchments))
+safe_set_task_value("parallel_tasks_this_run", as.character(parallel_tasks_this_run))
+safe_set_task_value("parallel_concurrency_limit", as.character(parallel_concurrency_limit))
 
 message("Setup complete.")
 message(sprintf("Country/region: %s", sub_region))
@@ -243,5 +260,12 @@ message(sprintf("Simulation years: %s", paste(simulation_years, collapse = ", ")
 message(sprintf("Eligible catchments for this run: %s", length(eligible)))
 message(sprintf("Config written to: %s", config_path))
 message(sprintf("Runtime catalog written to: %s", runtime_catalog_path))
+
+message("=== PARALLEL RUN NOTIFICATION ===")
+message(sprintf("Region catchments (total): %s", region_total_catchments))
+message(sprintf("Region catchments (eligible): %s", region_eligible_catchments))
+message(sprintf("Catchments selected for this run: %s", length(eligible)))
+message(sprintf("Parallel tasks running at once: %s", parallel_tasks_this_run))
+message(sprintf("Workflow concurrency limit: %s", parallel_concurrency_limit))
 
 print(utils::head(eligible, n = min(10, length(eligible))))

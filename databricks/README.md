@@ -12,6 +12,11 @@ This folder contains a Databricks workflow scaffold with **separate calibration 
     - `use_existing_peq=false` (build PEQ from precip/temp/river + weights, for other countries)
   - Builds catchment fan-out list
   - Precomputes and saves a runtime source catalog manifest for faster parallel tasks
+  - Prints a clear parallel-run notification:
+    - total catchments in region
+    - eligible catchments
+    - selected catchments
+    - how many tasks run in parallel
 
 - `notebooks/01_calibrate_ihacres_for_catchment.R`
   - One catchment calibration only

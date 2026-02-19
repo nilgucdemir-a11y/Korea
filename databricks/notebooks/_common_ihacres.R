@@ -517,11 +517,29 @@ cfg_value <- function(cfg, name, default = NULL) {
 }
 
 eligible_catchments_from_catalog <- function(catalog, catchment_limit = 110L) {
+  inventory <- catchment_inventory_from_catalog(catalog)
+  catchments <- inventory$eligible_ids
+
+  if (is.finite(catchment_limit) && catchment_limit > 0) {
+    catchments <- utils::head(catchments, catchment_limit)
+  }
+
+  catchments
+}
+
+catchment_inventory_from_catalog <- function(catalog) {
   if (identical(catalog$mode, "existing_peq")) {
-    catchments <- sort(names(catalog$peq_index))
-  } else {
+    ids <- sort(names(catalog$peq_index))
+    return(list(
+      region_total = length(ids),
+      eligible_total = length(ids),
+      eligible_ids = ids
+    ))
+  }
+
+  if (identical(catalog$mode, "build_from_forcing")) {
     forcing_ids <- union(names(catalog$precip_files_index), names(catalog$temp_files_index))
-    catchments <- sort(unique(catalog$weights_df$catchment_id))
+    catchments_all <- sort(unique(catalog$weights_df$catchment_id))
 
     has_inputs <- function(cid) {
       opids <- catalog$weights_df$op.id[catalog$weights_df$catchment_id == cid]
@@ -530,14 +548,15 @@ eligible_catchments_from_catalog <- function(catalog, catchment_limit = 110L) {
       has_forcing && has_q
     }
 
-    catchments <- catchments[vapply(catchments, has_inputs, logical(1))]
+    eligible <- catchments_all[vapply(catchments_all, has_inputs, logical(1))]
+    return(list(
+      region_total = length(catchments_all),
+      eligible_total = length(eligible),
+      eligible_ids = eligible
+    ))
   }
 
-  if (is.finite(catchment_limit) && catchment_limit > 0) {
-    catchments <- utils::head(catchments, catchment_limit)
-  }
-
-  catchments
+  stop(sprintf("Unsupported catalog mode: %s", as.character(catalog$mode)))
 }
 
 resolve_peq_for_catchment <- function(catchment_id, catalog, start_date) {
