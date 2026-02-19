@@ -1,0 +1,166 @@
+{
+  "name": "ihacres-kor-110-catchments-parallel",
+  "max_concurrent_runs": 1,
+  "timeout_seconds": 0,
+  "parameters": [
+    {
+      "name": "sub_region",
+      "default": "KOR"
+    },
+    {
+      "name": "weights_file",
+      "default": "/Volumes/gc_prod_sandbox/mdt_sandbox/r_mdt/Projects/Other/122_2025_KR_IHACRES/R02_Catchmentweights/R02_precip_ops_per_catchment.csv"
+    },
+    {
+      "name": "precip_dir",
+      "default": "/Volumes/gc_prod_sandbox/mdt_sandbox/r_mdt/Projects/Other/122_2025_KR_IHACRES/R02_2016R1/sim.precip.data/"
+    },
+    {
+      "name": "temp_dir",
+      "default": "/Volumes/gc_prod_sandbox/mdt_sandbox/r_mdt/Projects/Other/122_2025_KR_IHACRES/R02_2016R1/sim.temp.data/"
+    },
+    {
+      "name": "river_dir",
+      "default": "/Volumes/gc_prod_sandbox/mdt_sandbox/r_mdt/Projects/Other/122_2025_KR_IHACRES/R02_2016R1/sim.river.data/"
+    },
+    {
+      "name": "ptq_output_dir",
+      "default": "/Volumes/gc_prod_sandbox/mdt_sandbox/r_mdt/Projects/Other/122_2025_KR_IHACRES/R02_Output/catchments_daily_PTQ_by_RiverID/KOR/"
+    },
+    {
+      "name": "ihacres_output_dir",
+      "default": "/Volumes/gc_prod_sandbox/mdt_sandbox/r_mdt/Projects/Other/122_2025_KR_IHACRES/R02_Output/ihacres_results/KOR_1000y/"
+    },
+    {
+      "name": "start_date",
+      "default": "0000-01-01"
+    },
+    {
+      "name": "end_date",
+      "default": "1000-12-31"
+    },
+    {
+      "name": "write_csv_out",
+      "default": "true"
+    },
+    {
+      "name": "calibration_samples",
+      "default": "1000"
+    },
+    {
+      "name": "optimization_method",
+      "default": "PORT"
+    },
+    {
+      "name": "objective",
+      "default": "kge"
+    },
+    {
+      "name": "model_type",
+      "default": "snow"
+    },
+    {
+      "name": "catchment_limit",
+      "default": "110"
+    },
+    {
+      "name": "min_obs",
+      "default": "365"
+    }
+  ],
+  "job_clusters": [
+    {
+      "job_cluster_key": "ihacres_shared_cluster",
+      "new_cluster": {
+        "spark_version": "14.3.x-scala2.12",
+        "node_type_id": "REPLACE_WITH_YOUR_NODE_TYPE_ID",
+        "autoscale": {
+          "min_workers": 4,
+          "max_workers": 32
+        },
+        "data_security_mode": "SINGLE_USER",
+        "runtime_engine": "STANDARD"
+      }
+    }
+  ],
+  "tasks": [
+    {
+      "task_key": "setup_environment",
+      "job_cluster_key": "ihacres_shared_cluster",
+      "notebook_task": {
+        "notebook_path": "/Workspace/Shared/ihacres/notebooks/00_setup_and_widgets",
+        "base_parameters": {
+          "sub_region": "{{job.parameters.sub_region}}",
+          "weights_file": "{{job.parameters.weights_file}}",
+          "precip_dir": "{{job.parameters.precip_dir}}",
+          "temp_dir": "{{job.parameters.temp_dir}}",
+          "river_dir": "{{job.parameters.river_dir}}",
+          "ptq_output_dir": "{{job.parameters.ptq_output_dir}}",
+          "ihacres_output_dir": "{{job.parameters.ihacres_output_dir}}",
+          "start_date": "{{job.parameters.start_date}}",
+          "end_date": "{{job.parameters.end_date}}",
+          "write_csv_out": "{{job.parameters.write_csv_out}}",
+          "calibration_samples": "{{job.parameters.calibration_samples}}",
+          "optimization_method": "{{job.parameters.optimization_method}}",
+          "objective": "{{job.parameters.objective}}",
+          "model_type": "{{job.parameters.model_type}}",
+          "catchment_limit": "{{job.parameters.catchment_limit}}",
+          "min_obs": "{{job.parameters.min_obs}}"
+        }
+      }
+    },
+    {
+      "task_key": "run_catchments_parallel",
+      "depends_on": [
+        {
+          "task_key": "setup_environment"
+        }
+      ],
+      "for_each_task": {
+        "inputs": "{{tasks.setup_environment.values.catchment_ids_json}}",
+        "concurrency": 110,
+        "task": {
+          "task_key": "run_single_catchment",
+          "job_cluster_key": "ihacres_shared_cluster",
+          "notebook_task": {
+            "notebook_path": "/Workspace/Shared/ihacres/notebooks/01_run_ihacres_for_catchment",
+            "base_parameters": {
+              "catchment_id": "{{input}}",
+              "sub_region": "{{job.parameters.sub_region}}",
+              "weights_file": "{{job.parameters.weights_file}}",
+              "precip_dir": "{{job.parameters.precip_dir}}",
+              "temp_dir": "{{job.parameters.temp_dir}}",
+              "river_dir": "{{job.parameters.river_dir}}",
+              "ptq_output_dir": "{{job.parameters.ptq_output_dir}}",
+              "ihacres_output_dir": "{{job.parameters.ihacres_output_dir}}",
+              "start_date": "{{job.parameters.start_date}}",
+              "end_date": "{{job.parameters.end_date}}",
+              "write_csv_out": "{{job.parameters.write_csv_out}}",
+              "calibration_samples": "{{job.parameters.calibration_samples}}",
+              "optimization_method": "{{job.parameters.optimization_method}}",
+              "objective": "{{job.parameters.objective}}",
+              "model_type": "{{job.parameters.model_type}}",
+              "min_obs": "{{job.parameters.min_obs}}"
+            }
+          }
+        }
+      }
+    },
+    {
+      "task_key": "merge_results",
+      "depends_on": [
+        {
+          "task_key": "run_catchments_parallel"
+        }
+      ],
+      "job_cluster_key": "ihacres_shared_cluster",
+      "notebook_task": {
+        "notebook_path": "/Workspace/Shared/ihacres/notebooks/02_merge_results",
+        "base_parameters": {
+          "ihacres_output_dir": "{{job.parameters.ihacres_output_dir}}",
+          "sub_region": "{{job.parameters.sub_region}}"
+        }
+      }
+    }
+  ]
+}
