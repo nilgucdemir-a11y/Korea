@@ -2,6 +2,11 @@
 
 # COMMAND ----------
 
+# MAGIC %md
+# MAGIC ## Common helpers: package install and parsing utilities
+
+# COMMAND ----------
+
 ensure_packages_installed <- function() {
   required_cran <- c(
     "zoo", "latticeExtra", "polynom", "car", "Hmisc", "reshape",
@@ -140,6 +145,11 @@ safe_set_task_value <- function(key, value) {
 
 # COMMAND ----------
 
+# MAGIC %md
+# MAGIC ## Common helpers: data extraction and PEQ/catalog utilities
+
+# COMMAND ----------
+
 get_numeric_series_from_rds <- function(rds_path) {
   obj <- readRDS(rds_path)
 
@@ -274,6 +284,11 @@ read_peq_file <- function(file_path, catchment_id = NA_character_) {
 
   normalize_peq_df(obj, catchment_id = catchment_id)
 }
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## Common helpers: source catalogs and run config readers
 
 # COMMAND ----------
 
@@ -585,6 +600,11 @@ resolve_peq_for_catchment <- function(catchment_id, catalog, start_date) {
 
   list(status = "ok", data = built$data, source = "built_from_forcing", reason = NA_character_)
 }
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## Common helpers: IHACRES model preparation, calibration, simulation
 
 # COMMAND ----------
 

@@ -1,6 +1,7 @@
 # Databricks IHACRES workflow (110 parallel catchments)
 
 This folder contains a Databricks workflow scaffold with **separate calibration and simulation stages** and a simplified user input experience.
+All notebooks are organized with clear Databricks cell sections (`# COMMAND ----------`) for readability.
 
 ## What is included
 

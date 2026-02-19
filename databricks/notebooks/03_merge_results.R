@@ -15,6 +15,11 @@ if (exists("dbutils")) {
 
 # COMMAND ----------
 
+# MAGIC %md
+# MAGIC ## 1) Read run config
+
+# COMMAND ----------
+
 run_config_path <- get_widget_or_default("run_config_path", "")
 cfg <- read_run_config_or_stop(run_config_path)
 
@@ -28,6 +33,13 @@ summary_dir <- file.path(ihacres_output_dir, "summaries")
 if (!dir.exists(cal_metrics_dir)) stop(sprintf("Calibration metrics directory does not exist: %s", cal_metrics_dir))
 if (!dir.exists(sim_metrics_dir)) stop(sprintf("Simulation metrics directory does not exist: %s", sim_metrics_dir))
 safe_dir_create(summary_dir)
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## 2) Load metrics and build summaries
+
+# COMMAND ----------
 
 ensure_packages_installed()
 
@@ -85,6 +97,13 @@ cal_status_path <- file.path(summary_dir, "calibration_status_summary.csv")
 sim_status_by_year_path <- file.path(summary_dir, "simulation_status_summary_by_year.csv")
 sim_perf_by_year_path <- file.path(summary_dir, "simulation_performance_by_year.csv")
 run_summary_path <- file.path(summary_dir, "run_summary.csv")
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## 3) Save merged outputs and display summary
+
+# COMMAND ----------
 
 readr::write_csv(cal_all, cal_all_path)
 readr::write_csv(sim_all, sim_all_path)

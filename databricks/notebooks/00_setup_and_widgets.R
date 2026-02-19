@@ -24,6 +24,11 @@ if (exists("dbutils")) {
 
 # COMMAND ----------
 
+# MAGIC %md
+# MAGIC ## 1) Read user inputs and build effective configuration
+
+# COMMAND ----------
+
 country <- toupper(trimws(get_widget_or_default("country", "KOR")))
 model_years <- parse_int_or_stop(get_widget_or_default("model_years", "1000"), "model_years", min_value = 1L)
 model_type <- tolower(get_widget_or_default("model_type", "snow"))
@@ -127,6 +132,13 @@ if (sub_region != "KOR") {
 calibration_end_date <- window_end_from_years(start_date, calibration_years, days_per_year = days_per_year)
 simulation_end_dates <- vapply(simulation_years, function(y) as.character(window_end_from_years(start_date, y, days_per_year = days_per_year)), character(1))
 
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## 2) Prepare output paths and dependencies
+
+# COMMAND ----------
+
 safe_dir_create(ihacres_output_dir)
 safe_dir_create(file.path(ihacres_output_dir, "peq"))
 safe_dir_create(file.path(ihacres_output_dir, "calibration_models"))
@@ -150,6 +162,13 @@ library(dplyr)
 library(readr)
 library(jsonlite)
 library(tibble)
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## 3) Build source catalog and select catchments
+
+# COMMAND ----------
 
 catalog <- prepare_source_catalog(
   use_existing_peq = use_existing_peq,
@@ -201,6 +220,13 @@ readr::write_csv(catchment_manifest, catchment_manifest_path)
 
 catchment_ids_json <- jsonlite::toJSON(as.list(eligible), auto_unbox = TRUE)
 
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## 4) Persist run config and expose task values
+
+# COMMAND ----------
+
 run_config <- list(
   country = country,
   model_years = model_years,
@@ -249,6 +275,13 @@ safe_set_task_value("region_total_catchments", as.character(region_total_catchme
 safe_set_task_value("region_eligible_catchments", as.character(region_eligible_catchments))
 safe_set_task_value("parallel_tasks_this_run", as.character(parallel_tasks_this_run))
 safe_set_task_value("parallel_concurrency_limit", as.character(parallel_concurrency_limit))
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## 5) Setup summary and parallel notification
+
+# COMMAND ----------
 
 message("Setup complete.")
 message(sprintf("Country/region: %s", sub_region))

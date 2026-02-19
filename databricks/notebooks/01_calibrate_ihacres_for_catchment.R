@@ -16,6 +16,11 @@ if (exists("dbutils")) {
 
 # COMMAND ----------
 
+# MAGIC %md
+# MAGIC ## 1) Read catchment + run config
+
+# COMMAND ----------
+
 catchment_id <- get_widget_or_default("catchment_id", "")
 run_config_path <- get_widget_or_default("run_config_path", "")
 
@@ -48,6 +53,13 @@ if (!(tolower(objective) %in% c("kge", "nse"))) stop("objective must be kge or N
 calibration_end_date <- window_end_from_years(start_date, calibration_years, days_per_year = days_per_year)
 run_started_utc <- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ", tz = "UTC")
 
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## 2) Prepare output folders and libraries
+
+# COMMAND ----------
+
 safe_dir_create(ihacres_output_dir)
 safe_dir_create(file.path(ihacres_output_dir, "peq"))
 safe_dir_create(file.path(ihacres_output_dir, "calibration_models"))
@@ -75,6 +87,13 @@ fit_path <- file.path(ihacres_output_dir, "calibration_models", paste0(catchment
 cal_ts_path <- file.path(ihacres_output_dir, "calibration_timeseries", paste0(catchment_id, "_calibration_sim_vs_obs.csv"))
 metrics_path <- file.path(ihacres_output_dir, "calibration_metrics", paste0(catchment_id, "_calibration_metrics.csv"))
 log_path <- file.path(ihacres_output_dir, "calibration_logs", paste0(catchment_id, "_calibration_log.json"))
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## 3) Run calibration workflow for one catchment
+
+# COMMAND ----------
 
 result_row <- tryCatch({
   catalog <- resolve_catalog(
@@ -255,6 +274,13 @@ result_row <- tryCatch({
     run_finished_utc = format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ", tz = "UTC")
   )
 })
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## 4) Save calibration outputs and task values
+
+# COMMAND ----------
 
 readr::write_csv(result_row, metrics_path)
 

@@ -16,6 +16,11 @@ if (exists("dbutils")) {
 
 # COMMAND ----------
 
+# MAGIC %md
+# MAGIC ## 1) Read catchment + run config
+
+# COMMAND ----------
+
 catchment_id <- get_widget_or_default("catchment_id", "")
 run_config_path <- get_widget_or_default("run_config_path", "")
 
@@ -52,6 +57,13 @@ if (!(tolower(objective) %in% c("kge", "nse"))) stop("objective must be kge or N
 
 run_started_utc <- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ", tz = "UTC")
 
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## 2) Prepare output folders and libraries
+
+# COMMAND ----------
+
 safe_dir_create(ihacres_output_dir)
 safe_dir_create(file.path(ihacres_output_dir, "peq"))
 safe_dir_create(file.path(ihacres_output_dir, "simulation_metrics"))
@@ -72,6 +84,13 @@ fit_path <- file.path(ihacres_output_dir, "calibration_models", paste0(catchment
 peq_cache_path <- file.path(ihacres_output_dir, "peq", paste0(catchment_id, ".rds"))
 metrics_path <- file.path(ihacres_output_dir, "simulation_metrics", paste0(catchment_id, "_simulation_metrics.csv"))
 log_path <- file.path(ihacres_output_dir, "simulation_logs", paste0(catchment_id, "_simulation_log.json"))
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## 3) Load PEQ and run simulation windows
+
+# COMMAND ----------
 
 load_or_build_peq <- function() {
   if (file.exists(peq_cache_path)) {
@@ -97,6 +116,8 @@ load_or_build_peq <- function() {
   saveRDS(peq_result$data, peq_cache_path)
   peq_result$data
 }
+
+# COMMAND ----------
 
 result_rows <- tryCatch({
   if (!file.exists(fit_path)) stop(sprintf("Calibration fit file is missing: %s", fit_path))
@@ -230,6 +251,13 @@ result_rows <- tryCatch({
     run_finished_utc = format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ", tz = "UTC")
   )
 })
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## 4) Save simulation outputs and task values
+
+# COMMAND ----------
 
 readr::write_csv(result_rows, metrics_path)
 
