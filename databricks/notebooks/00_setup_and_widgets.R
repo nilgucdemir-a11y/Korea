@@ -231,6 +231,7 @@ catchment_manifest <- if (identical(runtime_catalog$mode, "existing_peq")) {
 readr::write_csv(catchment_manifest, catchment_manifest_path)
 
 catchment_ids_json <- jsonlite::toJSON(as.list(eligible), auto_unbox = TRUE)
+catchment_indices_json <- jsonlite::toJSON(as.list(seq_along(eligible)), auto_unbox = TRUE)
 
 # COMMAND ----------
 
@@ -278,11 +279,12 @@ config_path <- file.path(ihacres_output_dir, "run_config.json")
 writeLines(jsonlite::toJSON(run_config, auto_unbox = TRUE, pretty = TRUE), config_path)
 
 # Required for downstream dynamic references
-set_required_task_value("catchment_ids_json", catchment_ids_json)
+set_required_task_value("catchment_indices_json", catchment_indices_json)
 set_required_task_value("run_config_path", config_path)
 set_required_task_value("parallel_tasks_this_run", as.character(parallel_tasks_this_run))
 
 # Additional metadata values
+safe_set_task_value("catchment_ids_json", catchment_ids_json)
 safe_set_task_value("catchment_count", as.character(length(eligible)))
 safe_set_task_value("calibration_end_date", as.character(calibration_end_date))
 safe_set_task_value("simulation_years_csv_normalized", paste(simulation_years, collapse = ","))

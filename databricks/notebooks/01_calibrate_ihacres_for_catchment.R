@@ -12,6 +12,7 @@
 
 if (exists("dbutils")) {
   dbutils.widgets.text("catchment_id", "", "Catchment ID (optional)")
+  dbutils.widgets.text("catchment_idx", "", "Catchment index in manifest (optional)")
   dbutils.widgets.text("run_config_path", "", "Run config path from setup task")
 }
 
@@ -23,6 +24,7 @@ if (exists("dbutils")) {
 # COMMAND ----------
 
 catchment_id_input <- trimws(get_widget_or_default("catchment_id", ""))
+catchment_idx_input <- trimws(get_widget_or_default("catchment_idx", ""))
 run_config_path <- get_widget_or_default("run_config_path", "")
 
 cfg <- read_run_config_or_stop(run_config_path)
@@ -36,6 +38,7 @@ temp_dir <- as.character(cfg_value(cfg, "temp_dir", ""))
 river_dir <- as.character(cfg_value(cfg, "river_dir", ""))
 ptq_output_dir <- as.character(cfg_value(cfg, "ptq_output_dir", "/tmp/ihacres/ptq"))
 ihacres_output_dir <- as.character(cfg_value(cfg, "ihacres_output_dir", "/tmp/ihacres/results"))
+catchment_manifest_path <- as.character(cfg_value(cfg, "catchment_manifest_path", ""))
 catalog_rds_path <- as.character(cfg_value(cfg, "runtime_catalog_path", file.path(ihacres_output_dir, "manifests", "runtime_catalog.rds")))
 start_date <- parse_date_or_stop(as.character(cfg_value(cfg, "start_date", "0000-01-01")), "start_date")
 calibration_years <- parse_int_or_stop(as.character(cfg_value(cfg, "calibration_years", 100L)), "calibration_years", min_value = 1L)
@@ -78,22 +81,14 @@ library(zoo)
 library(hydromad)
 library(hydroGOF)
 
-catchment_ids <- if (nzchar(catchment_id_input)) {
-  catchment_id_input
-} else {
-  manifest_path <- as.character(cfg_value(cfg, "catchment_manifest_path", ""))
-  if (!nzchar(manifest_path) || !file.exists(manifest_path)) {
-    stop("catchment_id was empty and catchment_manifest_path was not available in run config")
-  }
-  manifest_df <- readr::read_csv(manifest_path, show_col_types = FALSE)
-  if (!"catchment_id" %in% names(manifest_df)) {
-    stop("catchment manifest does not include catchment_id column")
-  }
-  ids <- unique(as.character(manifest_df$catchment_id))
-  ids <- ids[nzchar(ids)]
-  if (length(ids) == 0) stop("No catchments found in catchment manifest")
-  message(sprintf("No catchment_id provided. Running full list from manifest: %s catchments", length(ids)))
-  ids
+catchment_ids <- resolve_requested_catchments(
+  catchment_id_input = catchment_id_input,
+  catchment_idx_input = catchment_idx_input,
+  catchment_manifest_path = catchment_manifest_path
+)
+
+if (!nzchar(catchment_id_input) && !nzchar(catchment_idx_input)) {
+  message(sprintf("No catchment_id/catchment_idx provided. Running full list from manifest: %s catchments", length(catchment_ids)))
 }
 
 # COMMAND ----------

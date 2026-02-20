@@ -147,9 +147,25 @@ safe_set_task_value <- function(key, value) {
   })
 }
 
+is_job_run_context <- function() {
+  env_hits <- c(
+    Sys.getenv("DATABRICKS_JOB_ID", ""),
+    Sys.getenv("DATABRICKS_RUN_ID", ""),
+    Sys.getenv("DB_IS_JOB_CLUSTER", "")
+  )
+  any(nzchar(env_hits))
+}
+
 set_required_task_value <- function(key, value) {
   ok <- safe_set_task_value(key, value)
   if (!ok) {
+    if (!is_job_run_context()) {
+      message(sprintf(
+        "Skipping required task value '%s' because this does not appear to be a Databricks Job run.",
+        key
+      ))
+      return(invisible(FALSE))
+    }
     stop(sprintf(
       "Failed to set required task value '%s'. Ensure notebook runs as a Databricks Job task with taskValues support.",
       key
@@ -544,6 +560,58 @@ cfg_value <- function(cfg, name, default = NULL) {
   }
 
   v
+}
+
+load_catchment_ids_from_manifest <- function(manifest_path) {
+  if (is.null(manifest_path) || !nzchar(as.character(manifest_path))) {
+    stop("catchment_manifest_path is missing")
+  }
+  if (!file.exists(manifest_path)) {
+    stop(sprintf("catchment manifest does not exist: %s", manifest_path))
+  }
+
+  manifest_df <- readr::read_csv(manifest_path, show_col_types = FALSE)
+  if (!"catchment_id" %in% names(manifest_df)) {
+    stop("catchment manifest does not include catchment_id column")
+  }
+
+  ids <- unique(as.character(manifest_df$catchment_id))
+  ids <- ids[nzchar(ids)]
+  if (length(ids) == 0) {
+    stop("No catchments found in catchment manifest")
+  }
+  ids
+}
+
+resolve_requested_catchments <- function(
+  catchment_id_input = "",
+  catchment_idx_input = "",
+  catchment_manifest_path
+) {
+  ids <- load_catchment_ids_from_manifest(catchment_manifest_path)
+
+  cid_txt <- trimws(as.character(catchment_id_input))
+  cidx_txt <- trimws(as.character(catchment_idx_input))
+
+  if (nzchar(cid_txt)) {
+    cid_parts <- unlist(strsplit(cid_txt, "[,;\\s]+"))
+    cid_parts <- cid_parts[nzchar(cid_parts)]
+    if (length(cid_parts) == 0) stop("catchment_id input did not contain valid IDs")
+    return(cid_parts)
+  }
+
+  if (nzchar(cidx_txt)) {
+    idx_parts <- unlist(strsplit(cidx_txt, "[,;\\s]+"))
+    idx_parts <- idx_parts[nzchar(idx_parts)]
+    idx <- suppressWarnings(as.integer(idx_parts))
+    if (any(is.na(idx) | idx < 1 | idx > length(ids))) {
+      stop(sprintf("catchment_idx must be between 1 and %s", length(ids)))
+    }
+    return(ids[idx])
+  }
+
+  # Default: all catchments from manifest
+  ids
 }
 
 eligible_catchments_from_catalog <- function(catalog, catchment_limit = NA_integer_) {

@@ -62,7 +62,7 @@
         }
       ],
       "for_each_task": {
-        "inputs": "{{tasks.setup_environment.values.catchment_ids_json}}",
+        "inputs": "{{tasks.setup_environment.values.catchment_indices_json}}",
         "concurrency": "{{tasks.setup_environment.values.parallel_tasks_this_run}}",
         "task": {
           "task_key": "calibrate_single_catchment",
@@ -70,7 +70,7 @@
           "notebook_task": {
             "notebook_path": "/Workspace/Shared/ihacres/notebooks/01_calibrate_ihacres_for_catchment",
             "base_parameters": {
-              "catchment_id": "{{input}}",
+              "catchment_idx": "{{input}}",
               "run_config_path": "{{tasks.setup_environment.values.run_config_path}}"
             }
           }
@@ -85,7 +85,7 @@
         }
       ],
       "for_each_task": {
-        "inputs": "{{tasks.setup_environment.values.catchment_ids_json}}",
+        "inputs": "{{tasks.setup_environment.values.catchment_indices_json}}",
         "concurrency": "{{tasks.setup_environment.values.parallel_tasks_this_run}}",
         "task": {
           "task_key": "simulate_single_catchment",
@@ -93,7 +93,7 @@
           "notebook_task": {
             "notebook_path": "/Workspace/Shared/ihacres/notebooks/02_simulate_ihacres_for_catchment",
             "base_parameters": {
-              "catchment_id": "{{input}}",
+              "catchment_idx": "{{input}}",
               "run_config_path": "{{tasks.setup_environment.values.run_config_path}}"
             }
           }

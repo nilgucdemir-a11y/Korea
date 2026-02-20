@@ -23,10 +23,10 @@ Despite the filename, the workflow is now dynamic:
    - resolves paths/config by country
    - discovers eligible catchments
    - writes `run_config.json`
-   - publishes task values (`catchment_ids_json`, parallel count, etc.)
+   - publishes task values (`catchment_indices_json`, parallel count, etc.)
 
 2. **calibrate_catchments_parallel** (`01_calibrate_ihacres_for_catchment.R`)
-   - For-Each over `catchment_ids_json`
+   - For-Each over `catchment_indices_json`
    - one catchment per task
    - calibrates IHACRES and saves fitted model + calibration metrics
 
@@ -173,7 +173,7 @@ Then monitor:
 Important:
 
 - Per-catchment notebooks also support **auto-list mode**:
-  - if `catchment_id` is empty and `run_config_path` is provided, they run the full catchment manifest list one by one.
+  - if `catchment_id` and `catchment_idx` are empty and `run_config_path` is provided, they run the full catchment manifest list one by one.
 
 ### Step 6: Collect outputs
 
@@ -224,7 +224,7 @@ Useful for checking country data before running the full workflow.
   - verify input directories/files
   - for non-KOR runs, pass required paths in `advanced_config_json`
 
-- **Failed to resolve references: `tasks.setup_environment.values.catchment_ids_json`**
+- **Failed to resolve references: `tasks.setup_environment.values.catchment_indices_json`**
   - setup task could not publish required task values
   - check setup logs for task-value errors
   - ensure you are running as a Databricks **Job** task (not as a standalone notebook run)
