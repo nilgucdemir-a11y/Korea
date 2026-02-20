@@ -138,7 +138,6 @@ safe_dir_create <- function(path) {
 }
 
 safe_set_task_value <- function(key, value) {
-  if (!exists("dbutils")) return(FALSE)
   tryCatch({
     dbutils.jobs.taskValues.set(key = key, value = value)
     TRUE
@@ -146,6 +145,17 @@ safe_set_task_value <- function(key, value) {
     message(sprintf("Unable to set task value '%s': %s", key, e$message))
     FALSE
   })
+}
+
+set_required_task_value <- function(key, value) {
+  ok <- safe_set_task_value(key, value)
+  if (!ok) {
+    stop(sprintf(
+      "Failed to set required task value '%s'. Ensure notebook runs as a Databricks Job task with taskValues support.",
+      key
+    ))
+  }
+  invisible(TRUE)
 }
 
 # COMMAND ----------

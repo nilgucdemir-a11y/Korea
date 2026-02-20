@@ -220,6 +220,12 @@ Useful for checking country data before running the full workflow.
   - verify input directories/files
   - for non-KOR runs, pass required paths in `advanced_config_json`
 
+- **Failed to resolve references: `tasks.setup_environment.values.catchment_ids_json`**
+  - setup task could not publish required task values
+  - check setup logs for task-value errors
+  - ensure you are running as a Databricks **Job** task (not as a standalone notebook run)
+  - ensure setup task completed successfully before fan-out tasks
+
 - **Hydromad package issues**
   - setup installs dependencies automatically
   - rerun setup task if cluster was restarted

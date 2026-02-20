@@ -277,16 +277,19 @@ run_config <- list(
 config_path <- file.path(ihacres_output_dir, "run_config.json")
 writeLines(jsonlite::toJSON(run_config, auto_unbox = TRUE, pretty = TRUE), config_path)
 
-safe_set_task_value("catchment_ids_json", catchment_ids_json)
+# Required for downstream dynamic references
+set_required_task_value("catchment_ids_json", catchment_ids_json)
+set_required_task_value("run_config_path", config_path)
+set_required_task_value("parallel_tasks_this_run", as.character(parallel_tasks_this_run))
+
+# Additional metadata values
 safe_set_task_value("catchment_count", as.character(length(eligible)))
-safe_set_task_value("run_config_path", config_path)
 safe_set_task_value("calibration_end_date", as.character(calibration_end_date))
 safe_set_task_value("simulation_years_csv_normalized", paste(simulation_years, collapse = ","))
 safe_set_task_value("runtime_catalog_path", runtime_catalog_path)
 safe_set_task_value("catchment_manifest_path", catchment_manifest_path)
 safe_set_task_value("region_total_catchments", as.character(region_total_catchments))
 safe_set_task_value("region_eligible_catchments", as.character(region_eligible_catchments))
-safe_set_task_value("parallel_tasks_this_run", as.character(parallel_tasks_this_run))
 safe_set_task_value("parallel_concurrency_limit", as.character(parallel_concurrency_limit))
 
 # COMMAND ----------
