@@ -111,6 +111,9 @@ Notes:
 
 - If `catchment_limit` is omitted, all eligible catchments are selected.
 - If `parallel_concurrency_limit` is omitted, concurrency = selected catchment count.
+- You do **not** need to enter catchment IDs manually in normal workflow runs.
+  - Setup generates catchment list automatically.
+  - Parallel tasks read from that list.
 
 ---
 
@@ -162,6 +165,11 @@ Then monitor:
 - calibration fan-out task
 - simulation fan-out task
 - merge task
+
+Important:
+
+- Per-catchment notebooks also support **auto-list mode**:
+  - if `catchment_id` is empty and `run_config_path` is provided, they run the full catchment manifest list one by one.
 
 ### Step 6: Collect outputs
 
