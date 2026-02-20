@@ -94,6 +94,10 @@ The job exposes 5 parameters:
 - `start_date = 0000-01-01`
 - `advanced_config_json = ""`
 
+KOR defaults now read existing PEQ files from:
+
+- `/Volumes/gc_prod_sandbox/mdt_sandbox/r_mdt/Projects/Other/122_2025_KR_IHACRES/R02_Input/`
+
 ### Example: custom run with advanced overrides
 
 ```json

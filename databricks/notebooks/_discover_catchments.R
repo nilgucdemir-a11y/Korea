@@ -21,7 +21,7 @@
 if (exists("dbutils")) {
   dbutils.widgets.text(
     "input_path",
-    "/Volumes/gc_prod_sandbox/mdt_sandbox/r_mdt/Projects/Other/122_2025_KR_IHACRES/R02_Output/catchments_daily_PTQ_by_RiverID/KOR/",
+    "/Volumes/gc_prod_sandbox/mdt_sandbox/r_mdt/Projects/Other/122_2025_KR_IHACRES/R02_Input/",
     "Input directory (.rds catchments)"
   )
   dbutils.widgets.text(
@@ -35,7 +35,7 @@ if (exists("dbutils")) {
 
 input_path <- get_widget_or_default(
   "input_path",
-  "/Volumes/gc_prod_sandbox/mdt_sandbox/r_mdt/Projects/Other/122_2025_KR_IHACRES/R02_Output/catchments_daily_PTQ_by_RiverID/KOR/"
+  "/Volumes/gc_prod_sandbox/mdt_sandbox/r_mdt/Projects/Other/122_2025_KR_IHACRES/R02_Input/"
 )
 output_path <- get_widget_or_default(
   "output_path",
