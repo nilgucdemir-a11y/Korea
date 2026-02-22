@@ -236,7 +236,7 @@ catchment_indices_json <- jsonlite::toJSON(as.list(seq_along(eligible)), auto_un
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## 4) Persist run config and expose task values
+# MAGIC ## 4) Persist run config and stage task value payload
 
 # COMMAND ----------
 
@@ -278,26 +278,76 @@ run_config <- list(
 config_path <- file.path(ihacres_output_dir, "run_config.json")
 writeLines(jsonlite::toJSON(run_config, auto_unbox = TRUE, pretty = TRUE), config_path)
 
-# Required for downstream dynamic references
-set_required_task_value("catchment_indices_json", catchment_indices_json)
-set_required_task_value("run_config_path", config_path)
-set_required_task_value("parallel_tasks_this_run", as.character(parallel_tasks_this_run))
-
-# Additional metadata values
-safe_set_task_value("catchment_ids_json", catchment_ids_json)
-safe_set_task_value("catchment_count", as.character(length(eligible)))
-safe_set_task_value("calibration_end_date", as.character(calibration_end_date))
-safe_set_task_value("simulation_years_csv_normalized", paste(simulation_years, collapse = ","))
-safe_set_task_value("runtime_catalog_path", runtime_catalog_path)
-safe_set_task_value("catchment_manifest_path", catchment_manifest_path)
-safe_set_task_value("region_total_catchments", as.character(region_total_catchments))
-safe_set_task_value("region_eligible_catchments", as.character(region_eligible_catchments))
-safe_set_task_value("parallel_concurrency_limit", as.character(parallel_concurrency_limit))
+task_values_payload_path <- "/tmp/ihacres_task_values_payload.json"
+task_values_payload <- list(
+  catchment_indices_json = catchment_indices_json,
+  run_config_path = config_path,
+  parallel_tasks_this_run = as.character(parallel_tasks_this_run),
+  catchment_ids_json = catchment_ids_json,
+  catchment_count = as.character(length(eligible)),
+  calibration_end_date = as.character(calibration_end_date),
+  simulation_years_csv_normalized = paste(simulation_years, collapse = ","),
+  runtime_catalog_path = runtime_catalog_path,
+  catchment_manifest_path = catchment_manifest_path,
+  region_total_catchments = as.character(region_total_catchments),
+  region_eligible_catchments = as.character(region_eligible_catchments),
+  parallel_concurrency_limit = as.character(parallel_concurrency_limit)
+)
+writeLines(jsonlite::toJSON(task_values_payload, auto_unbox = TRUE, pretty = TRUE), task_values_payload_path)
+message(sprintf("Task values payload staged at: %s", task_values_payload_path))
 
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## 5) Setup summary and parallel notification
+# MAGIC ## 5) Publish task values with Python
+
+# COMMAND ----------
+
+# MAGIC %python
+# MAGIC import json
+# MAGIC import os
+# MAGIC
+# MAGIC payload_path = "/tmp/ihacres_task_values_payload.json"
+# MAGIC if not os.path.exists(payload_path):
+# MAGIC     raise FileNotFoundError(f"Task value payload not found: {payload_path}")
+# MAGIC
+# MAGIC with open(payload_path, "r", encoding="utf-8") as fp:
+# MAGIC     payload = json.load(fp)
+# MAGIC
+# MAGIC def is_job_run_context():
+# MAGIC     try:
+# MAGIC         ctx = dbutils.notebook.entry_point.getDbutils().notebook().getContext()
+# MAGIC         tags = ctx.tags()
+# MAGIC         return bool(tags.contains("jobId") and tags.get("jobId").isDefined())
+# MAGIC     except Exception:
+# MAGIC         return False
+# MAGIC
+# MAGIC required_keys = {"catchment_indices_json", "run_config_path", "parallel_tasks_this_run"}
+# MAGIC
+# MAGIC if not is_job_run_context():
+# MAGIC     print("Non-job context detected; skipping dbutils.jobs.taskValues.set")
+# MAGIC else:
+# MAGIC     failures = []
+# MAGIC     for key, value in payload.items():
+# MAGIC         try:
+# MAGIC             dbutils.jobs.taskValues.set(key=key, value=value)
+# MAGIC         except Exception as exc:
+# MAGIC             failures.append((key, str(exc)))
+# MAGIC
+# MAGIC     if failures:
+# MAGIC         required_failures = [entry for entry in failures if entry[0] in required_keys]
+# MAGIC         if required_failures:
+# MAGIC             msg = "; ".join([f"{k}: {e}" for k, e in required_failures])
+# MAGIC             raise RuntimeError(f"Failed to set required task values -> {msg}")
+# MAGIC         optional_msg = "; ".join([f"{k}: {e}" for k, e in failures])
+# MAGIC         print(f"Warning: optional task values failed to publish -> {optional_msg}")
+# MAGIC     else:
+# MAGIC         print("Task values published successfully via Python.")
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## 6) Setup summary and parallel notification
 
 # COMMAND ----------
 

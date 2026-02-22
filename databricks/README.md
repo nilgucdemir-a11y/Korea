@@ -6,7 +6,8 @@ This folder contains a Databricks workflow to run IHACRES at catchment scale wit
 - dynamic parallel fan-out based on the selected catchment list
 - simple user inputs for daily operation
 
-All notebooks are organized with clear Databricks cells (`# COMMAND ----------`) and markdown section headers.
+Notebooks are organized with clear Databricks cells (`# COMMAND ----------`) and markdown section headers.  
+`00_setup_and_widgets.R` is intentionally mixed-language: configuration/discovery stays in R, and task value publication runs in a Python cell for higher Databricks job reliability.
 
 ---
 
@@ -23,7 +24,7 @@ Despite the filename, the workflow is now dynamic:
    - resolves paths/config by country
    - discovers eligible catchments
    - writes `run_config.json`
-   - publishes task values (`catchment_indices_json`, parallel count, etc.)
+   - stages task-value payload in R, then publishes task values in Python (`catchment_indices_json`, parallel count, etc.)
 
 2. **calibrate_catchments_parallel** (`01_calibrate_ihacres_for_catchment.R`)
    - For-Each over `catchment_indices_json`
@@ -226,6 +227,7 @@ Useful for checking country data before running the full workflow.
 
 - **Failed to resolve references: `tasks.setup_environment.values.catchment_indices_json`**
   - setup task could not publish required task values
+  - confirm the Python task-values cell in setup (`## 5) Publish task values with Python`) executed successfully
   - check setup logs for task-value errors
   - ensure you are running as a Databricks **Job** task (not as a standalone notebook run)
   - ensure setup task completed successfully before fan-out tasks
