@@ -10,7 +10,7 @@
 # COMMAND ----------
 
 if (exists("dbutils")) {
-  dbutils.widgets.text("run_config_path", "", "Run config path from setup task")
+  dbutils.widgets.text("run_config_path", "", "Run config path from setup task (optional)")
 }
 
 # COMMAND ----------
@@ -20,8 +20,10 @@ if (exists("dbutils")) {
 
 # COMMAND ----------
 
-run_config_path <- get_widget_or_default("run_config_path", "")
-cfg <- read_run_config_or_stop(run_config_path)
+run_config_path_input <- get_widget_or_default("run_config_path", "")
+cfg <- read_run_config_or_stop(run_config_path_input)
+run_config_path <- as.character(if (is.null(cfg$resolved_run_config_path)) run_config_path_input else cfg$resolved_run_config_path)
+message(sprintf("Using run_config_path: %s", run_config_path))
 
 ihacres_output_dir <- as.character(cfg_value(cfg, "ihacres_output_dir", "/tmp/ihacres/results"))
 sub_region <- as.character(cfg_value(cfg, "sub_region", "KOR"))

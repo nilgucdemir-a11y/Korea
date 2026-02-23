@@ -13,7 +13,7 @@
 if (exists("dbutils")) {
   dbutils.widgets.text("catchment_id", "", "Catchment ID (optional)")
   dbutils.widgets.text("catchment_idx", "", "Catchment index in manifest (optional)")
-  dbutils.widgets.text("run_config_path", "", "Run config path from setup task")
+  dbutils.widgets.text("run_config_path", "", "Run config path from setup task (optional)")
 }
 
 # COMMAND ----------
@@ -25,9 +25,11 @@ if (exists("dbutils")) {
 
 catchment_id_input <- trimws(get_widget_or_default("catchment_id", ""))
 catchment_idx_input <- trimws(get_widget_or_default("catchment_idx", ""))
-run_config_path <- get_widget_or_default("run_config_path", "")
+run_config_path_input <- get_widget_or_default("run_config_path", "")
 
-cfg <- read_run_config_or_stop(run_config_path)
+cfg <- read_run_config_or_stop(run_config_path_input)
+run_config_path <- as.character(if (is.null(cfg$resolved_run_config_path)) run_config_path_input else cfg$resolved_run_config_path)
+message(sprintf("Using run_config_path: %s", run_config_path))
 
 sub_region <- toupper(as.character(cfg_value(cfg, "sub_region", "KOR")))
 use_existing_peq <- parse_bool(cfg_value(cfg, "use_existing_peq", TRUE), default = TRUE)

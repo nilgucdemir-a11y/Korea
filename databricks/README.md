@@ -174,7 +174,8 @@ Then monitor:
 Important:
 
 - Per-catchment notebooks also support **auto-list mode**:
-  - if `catchment_id` and `catchment_idx` are empty and `run_config_path` is provided, they run the full catchment manifest list one by one.
+  - if `catchment_id` and `catchment_idx` are empty, they run the full catchment manifest list one by one.
+  - `run_config_path` can be passed explicitly, or left empty to auto-resolve from setup task values / latest discovered run config.
 
 ### Step 6: Collect outputs
 

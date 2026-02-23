@@ -535,19 +535,80 @@ resolve_catalog <- function(
 }
 
 read_run_config_or_stop <- function(run_config_path) {
-  if (is.null(run_config_path) || !nzchar(as.character(run_config_path))) {
-    stop("run_config_path must be provided")
+  get_task_value_or_default <- function(task_key, key, default = "") {
+    if (!exists("dbutils")) return(default)
+    tryCatch({
+      as.character(dbutils.jobs.taskValues.get(taskKey = task_key, key = key, debugValue = default))
+    }, error = function(e) default)
   }
-  if (!file.exists(run_config_path)) {
-    stop(sprintf("run_config_path does not exist: %s", run_config_path))
+
+  pick_latest_existing_path <- function(paths) {
+    paths <- unique(as.character(paths))
+    paths <- paths[nzchar(paths) & file.exists(paths)]
+    if (length(paths) == 0) return("")
+
+    info <- file.info(paths)
+    ord <- order(info$mtime, decreasing = TRUE, na.last = NA)
+    if (length(ord) == 0) return("")
+    paths[ord[[1]]]
   }
+
+  discover_run_config_paths <- function() {
+    patterns <- c(
+      "/tmp/ihacres/*/results_*/run_config.json",
+      "/Volumes/gc_prod_sandbox/mdt_sandbox/r_mdt/Projects/Other/122_2025_KR_IHACRES/R02_Output/ihacres_results/*/run_config.json",
+      "/dbfs/Volumes/gc_prod_sandbox/mdt_sandbox/r_mdt/Projects/Other/122_2025_KR_IHACRES/R02_Output/ihacres_results/*/run_config.json"
+    )
+    candidates <- unlist(lapply(patterns, Sys.glob), use.names = FALSE)
+    unique(candidates[file.exists(candidates)])
+  }
+
+  resolve_run_config_path_or_stop <- function(run_config_path_input) {
+    requested <- trimws(as.character(if (is.null(run_config_path_input)) "" else run_config_path_input))
+    if (nzchar(requested)) {
+      if (!file.exists(requested)) {
+        stop(sprintf("run_config_path does not exist: %s", requested))
+      }
+      return(requested)
+    }
+
+    upstream_task_keys <- c("setup_environment", "setup")
+    for (task_key in upstream_task_keys) {
+      from_task_value <- trimws(get_task_value_or_default(task_key, "run_config_path", default = ""))
+      if (nzchar(from_task_value) && file.exists(from_task_value)) {
+        message(sprintf("run_config_path not provided; using task value from '%s': %s", task_key, from_task_value))
+        return(from_task_value)
+      }
+    }
+
+    from_env <- trimws(Sys.getenv("IHACRES_RUN_CONFIG_PATH", ""))
+    if (nzchar(from_env) && file.exists(from_env)) {
+      message(sprintf("run_config_path not provided; using IHACRES_RUN_CONFIG_PATH: %s", from_env))
+      return(from_env)
+    }
+
+    discovered <- discover_run_config_paths()
+    latest <- pick_latest_existing_path(discovered)
+    if (nzchar(latest)) {
+      message(sprintf("run_config_path not provided; auto-detected latest run config: %s", latest))
+      return(latest)
+    }
+
+    stop(
+      "run_config_path must be provided. ",
+      "Pass setup output '{{tasks.setup_environment.values.run_config_path}}', ",
+      "or set IHACRES_RUN_CONFIG_PATH, or run setup first so auto-discovery can find run_config.json."
+    )
+  }
+  resolved_path <- resolve_run_config_path_or_stop(run_config_path)
 
   if (!requireNamespace("jsonlite", quietly = TRUE)) {
     install.packages("jsonlite", repos = "https://cloud.r-project.org")
   }
 
-  cfg <- jsonlite::fromJSON(run_config_path, simplifyVector = FALSE)
+  cfg <- jsonlite::fromJSON(resolved_path, simplifyVector = FALSE)
   if (!is.list(cfg)) stop("Invalid run config JSON format")
+  cfg$resolved_run_config_path <- resolved_path
   cfg
 }
 
