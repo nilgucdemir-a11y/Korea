@@ -122,7 +122,9 @@ sim_all$simulation_years <- suppressWarnings(as.integer(sim_all$simulation_years
 cal_ok <- cal_all %>% dplyr::filter(status == "ok")
 sim_ok <- sim_all %>% dplyr::filter(status == "ok", is.finite(simulation_years))
 
-if (nrow(cal_ok) == 0) stop("No successful calibration rows found")
+if (nrow(cal_ok) == 0) {
+  message("No successful calibration rows found; calibration-specific comparisons will be skipped.")
+}
 if (nrow(sim_ok) == 0) stop("No successful simulation rows found")
 
 available_years <- sort(unique(sim_ok$simulation_years))
@@ -163,11 +165,20 @@ show_table <- function(df, title, n = 20L) {
 top_sim <- rank_by_metric(sim_year, metric_to_rank)
 top_sim <- utils::head(top_sim, n = min(top_n, nrow(top_sim)))
 
-cal_rank <- rank_by_metric(cal_ok, "KGE")
-cal_rank <- utils::head(cal_rank, n = min(top_n, nrow(cal_rank)))
-
-cal_compare <- cal_ok %>%
-  dplyr::select(catchment_id, cal_KGE = KGE, cal_NSE = NSE, cal_RMSE = RMSE)
+if (nrow(cal_ok) > 0) {
+  cal_rank <- rank_by_metric(cal_ok, "KGE")
+  cal_rank <- utils::head(cal_rank, n = min(top_n, nrow(cal_rank)))
+  cal_compare <- cal_ok %>%
+    dplyr::select(catchment_id, cal_KGE = KGE, cal_NSE = NSE, cal_RMSE = RMSE)
+} else {
+  cal_rank <- tibble::tibble()
+  cal_compare <- tibble::tibble(
+    catchment_id = character(0),
+    cal_KGE = numeric(0),
+    cal_NSE = numeric(0),
+    cal_RMSE = numeric(0)
+  )
+}
 
 sim_compare <- sim_year %>%
   dplyr::select(catchment_id, sim_KGE = KGE, sim_NSE = NSE, sim_RMSE = RMSE)
@@ -190,8 +201,12 @@ message(sprintf("Catchments available in selected year: %s", nrow(sim_year)))
 message(sprintf("Focus catchments used for trajectory plots: %s", paste(focus_ids, collapse = ", ")))
 
 show_table(top_sim, sprintf("Top catchments by %s for simulation year %s", metric_to_rank, year_to_compare), n = top_n)
-show_table(cal_rank, "Top catchments by calibration KGE", n = top_n)
-show_table(compare_df, "Calibration vs Simulation comparison (joined by catchment)", n = top_n)
+if (nrow(cal_rank) > 0) {
+  show_table(cal_rank, "Top catchments by calibration KGE", n = top_n)
+}
+if (nrow(compare_df) > 0) {
+  show_table(compare_df, "Calibration vs Simulation comparison (joined by catchment)", n = top_n)
+}
 
 # COMMAND ----------
 
