@@ -50,6 +50,7 @@ calibration_samples <- parse_int_or_stop(as.character(cfg_value(cfg, "calibratio
 optimization_method <- as.character(cfg_value(cfg, "optimization_method", "PORT"))
 objective <- normalize_objective(cfg_value(cfg, "objective", "kge"))
 model_type <- tolower(as.character(cfg_value(cfg, "model_type", "snow")))
+auto_align_start_date <- parse_bool(cfg_value(cfg, "auto_align_start_date", TRUE), default = TRUE)
 min_obs <- parse_int_or_stop(as.character(cfg_value(cfg, "min_obs", 365L)), "min_obs", min_value = 30L)
 
 if (!(model_type %in% c("snow", "cmd"))) stop("model_type must be snow or cmd")
@@ -158,10 +159,41 @@ run_one_catchment <- function(catchment_id) {
         if (write_csv_out) readr::write_csv(peq_df, ptq_fallback_csv)
       }
 
-      ts_result <- prepare_model_ts(
-        peq_df = peq_df,
+      peq_range <- date_range_from_df(peq_df, date_col = "Date")
+      cal_window <- list(
         start_date = start_date,
         end_date = calibration_end_date,
+        adjusted = FALSE,
+        requested_start = start_date,
+        requested_end = calibration_end_date
+      )
+      if (peq_range$has_dates) {
+        cal_window <- resolve_analysis_window(
+          requested_start_date = start_date,
+          years = calibration_years,
+          days_per_year = days_per_year,
+          data_min_date = peq_range$min_date,
+          data_max_date = peq_range$max_date,
+          auto_align = auto_align_start_date
+        )
+        if (isTRUE(cal_window$adjusted)) {
+          message(sprintf(
+            "[%s] Calibration window %s..%s does not overlap data %s..%s; using %s..%s",
+            catchment_id,
+            as.character(cal_window$requested_start),
+            as.character(cal_window$requested_end),
+            as.character(peq_range$min_date),
+            as.character(peq_range$max_date),
+            as.character(cal_window$start_date),
+            as.character(cal_window$end_date)
+          ))
+        }
+      }
+
+      ts_result <- prepare_model_ts(
+        peq_df = peq_df,
+        start_date = cal_window$start_date,
+        end_date = cal_window$end_date,
         min_obs = min_obs,
         require_q = TRUE
       )
@@ -175,8 +207,8 @@ run_one_catchment <- function(catchment_id) {
           objective = objective,
           optimizer = NA_character_,
           calibration_years = calibration_years,
-          calibration_start_date = as.character(start_date),
-          calibration_end_date = as.character(calibration_end_date),
+          calibration_start_date = as.character(cal_window$start_date),
+          calibration_end_date = as.character(cal_window$end_date),
           n_rows_peq = nrow(peq_df),
           n_rows_calibration = NA_integer_,
           n_obs_metrics = NA_integer_,
@@ -216,8 +248,8 @@ run_one_catchment <- function(catchment_id) {
             objective = objective,
             optimizer = cal_result$optimizer_used,
             calibration_years = calibration_years,
-            calibration_start_date = as.character(start_date),
-            calibration_end_date = as.character(calibration_end_date),
+            calibration_start_date = as.character(cal_window$start_date),
+            calibration_end_date = as.character(cal_window$end_date),
             n_rows_peq = nrow(peq_df),
             n_rows_calibration = ts_result$n_rows,
             n_obs_metrics = NA_integer_,
@@ -250,8 +282,8 @@ run_one_catchment <- function(catchment_id) {
             objective = objective,
             optimizer = cal_result$optimizer_used,
             calibration_years = calibration_years,
-            calibration_start_date = as.character(start_date),
-            calibration_end_date = as.character(calibration_end_date),
+            calibration_start_date = as.character(cal_window$start_date),
+            calibration_end_date = as.character(cal_window$end_date),
             n_rows_peq = nrow(peq_df),
             n_rows_calibration = ts_result$n_rows,
             n_obs_metrics = metrics$n_obs,

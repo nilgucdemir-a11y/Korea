@@ -132,6 +132,58 @@ window_end_from_years <- function(start_date, years, days_per_year = 365L) {
   start_date + as.integer(years * days_per_year) - 1L
 }
 
+date_range_from_df <- function(df, date_col = "Date") {
+  if (!is.data.frame(df) || !(date_col %in% names(df))) {
+    return(list(has_dates = FALSE, min_date = as.Date(NA), max_date = as.Date(NA)))
+  }
+
+  dates <- as.Date(df[[date_col]])
+  dates <- dates[!is.na(dates)]
+  if (length(dates) == 0) {
+    return(list(has_dates = FALSE, min_date = as.Date(NA), max_date = as.Date(NA)))
+  }
+
+  list(
+    has_dates = TRUE,
+    min_date = min(dates),
+    max_date = max(dates)
+  )
+}
+
+resolve_analysis_window <- function(
+  requested_start_date,
+  years,
+  days_per_year,
+  data_min_date,
+  data_max_date,
+  auto_align = TRUE
+) {
+  requested_start <- as.Date(requested_start_date)
+  requested_end <- window_end_from_years(requested_start, years, days_per_year = days_per_year)
+
+  has_overlap <- !(requested_end < data_min_date || requested_start > data_max_date)
+  if (has_overlap || !auto_align) {
+    return(list(
+      start_date = requested_start,
+      end_date = requested_end,
+      adjusted = FALSE,
+      requested_start = requested_start,
+      requested_end = requested_end
+    ))
+  }
+
+  aligned_start <- as.Date(data_min_date)
+  aligned_end <- window_end_from_years(aligned_start, years, days_per_year = days_per_year)
+
+  list(
+    start_date = aligned_start,
+    end_date = aligned_end,
+    adjusted = TRUE,
+    requested_start = requested_start,
+    requested_end = requested_end
+  )
+}
+
 safe_dir_create <- function(path) {
   if (!dir.exists(path)) dir.create(path, recursive = TRUE, showWarnings = FALSE)
   invisible(path)
@@ -753,7 +805,7 @@ resolve_peq_for_catchment <- function(catchment_id, catalog, start_date) {
 # COMMAND ----------
 
 prepare_model_ts <- function(peq_df, start_date, end_date, min_obs = 365L, require_q = TRUE) {
-  df <- peq_df %>%
+  df0 <- peq_df %>%
     dplyr::transmute(
       Date = as.Date(Date),
       P = as.numeric(P),
@@ -762,10 +814,27 @@ prepare_model_ts <- function(peq_df, start_date, end_date, min_obs = 365L, requi
     ) %>%
     dplyr::filter(!is.na(Date), Date >= start_date, Date <= end_date)
 
-  if (nrow(df) == 0) {
-    return(list(status = "skip", reason = "No rows in selected date window"))
+  if (nrow(df0) == 0) {
+    data_range <- date_range_from_df(peq_df, date_col = "Date")
+    reason <- if (isTRUE(data_range$has_dates)) {
+      sprintf(
+        "No rows in selected date window (%s..%s); available dates are %s..%s",
+        as.character(start_date),
+        as.character(end_date),
+        as.character(data_range$min_date),
+        as.character(data_range$max_date)
+      )
+    } else {
+      sprintf(
+        "No rows in selected date window (%s..%s); PEQ has no valid dates",
+        as.character(start_date),
+        as.character(end_date)
+      )
+    }
+    return(list(status = "skip", reason = reason))
   }
 
+  df <- df0
   if (require_q) {
     df <- dplyr::filter(df, stats::complete.cases(P, E, Q))
   } else {
@@ -773,7 +842,17 @@ prepare_model_ts <- function(peq_df, start_date, end_date, min_obs = 365L, requi
   }
 
   if (nrow(df) < min_obs) {
-    return(list(status = "skip", reason = sprintf("Not enough rows after filtering (%s)", nrow(df))))
+    return(list(
+      status = "skip",
+      reason = sprintf(
+        "Not enough rows after filtering (%s of %s in %s..%s; min_obs=%s)",
+        nrow(df),
+        nrow(df0),
+        as.character(start_date),
+        as.character(end_date),
+        min_obs
+      )
+    ))
   }
 
   model_ts <- zoo::zoo(df[, c("P", "E", "Q")], order.by = df$Date)

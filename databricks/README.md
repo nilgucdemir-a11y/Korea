@@ -108,6 +108,7 @@ KOR defaults now read existing PEQ files from:
   "peq_dir": "/Volumes/.../MY_COUNTRY_PEQ/",
   "calibration_years": 100,
   "simulation_years": [100, 500, 1000],
+  "auto_align_start_date": true,
   "catchment_limit": 250,
   "parallel_concurrency_limit": 120
 }
@@ -117,6 +118,8 @@ Notes:
 
 - If `catchment_limit` is omitted, all eligible catchments are selected.
 - If `parallel_concurrency_limit` is omitted, concurrency = selected catchment count.
+- If `auto_align_start_date` is omitted, it defaults to `true`.
+  - When enabled, calibration/simulation windows are automatically shifted to PEQ data start if requested windows do not overlap available dates.
 - You do **not** need to enter catchment IDs manually in normal workflow runs.
   - Setup generates catchment list automatically.
   - Parallel tasks read from that list.
@@ -245,6 +248,11 @@ Useful for checking country data before running the full workflow.
 - **No eligible catchments found**
   - verify input directories/files
   - for non-KOR runs, pass required paths in `advanced_config_json`
+
+- **Most metrics are `NA` / many `skip` rows**
+  - this usually means date windows did not overlap available PEQ dates
+  - keep `auto_align_start_date = true` (default), or set `start_date` to match PEQ data start
+  - check calibration/simulation logs for window-alignment messages
 
 - **Failed to resolve references: `tasks.setup_environment.values.catchment_indices_json`**
   - setup task could not publish required task values

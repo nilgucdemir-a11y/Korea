@@ -61,6 +61,7 @@ country_defaults <- function(country_code, years, mtype) {
       calibration_samples = 1000L,
       optimization_method = "PORT",
       objective = "kge",
+      auto_align_start_date = TRUE,
       catchment_limit = NA_integer_,
       parallel_concurrency_limit = NA_integer_,
       min_obs = 365L
@@ -84,6 +85,7 @@ country_defaults <- function(country_code, years, mtype) {
     calibration_samples = 1000L,
     optimization_method = "PORT",
     objective = "kge",
+    auto_align_start_date = TRUE,
     catchment_limit = NA_integer_,
     parallel_concurrency_limit = NA_integer_,
     min_obs = 365L
@@ -107,6 +109,7 @@ calibration_samples <- parse_int_or_stop(as.character(if (is.null(cfg$calibratio
 optimization_method <- as.character(if (is.null(cfg$optimization_method)) "PORT" else cfg$optimization_method)
 objective <- normalize_objective(if (is.null(cfg$objective)) "kge" else cfg$objective)
 model_type <- tolower(as.character(if (is.null(cfg$model_type)) model_type else cfg$model_type))
+auto_align_start_date <- parse_bool(cfg$auto_align_start_date, default = TRUE)
 catchment_limit <- parse_optional_int(if (is.null(cfg$catchment_limit)) NA else cfg$catchment_limit, "catchment_limit", min_value = 1L, default = NA_integer_)
 parallel_concurrency_limit_override <- parse_optional_int(
   if (is.null(cfg$parallel_concurrency_limit)) NA else cfg$parallel_concurrency_limit,
@@ -263,6 +266,7 @@ run_config <- list(
   optimization_method = optimization_method,
   objective = objective,
   model_type = model_type,
+  auto_align_start_date = auto_align_start_date,
   min_obs = min_obs,
   catchment_limit = catchment_limit,
   catchment_count = length(eligible),
@@ -356,6 +360,14 @@ message(sprintf("Country/region: %s", sub_region))
 message(sprintf("Mode: %s", ifelse(use_existing_peq, "Use existing PEQ files", "Build PEQ from forcing files")))
 message(sprintf("Model type: %s", model_type))
 message(sprintf("Start date: %s (format: YYYY-MM-DD)", as.character(start_date)))
+message(sprintf("Auto-align start date to data range when needed: %s", ifelse(auto_align_start_date, "enabled", "disabled")))
+start_year_numeric <- suppressWarnings(as.integer(format(start_date, "%Y")))
+if (isTRUE(auto_align_start_date) && is.finite(start_year_numeric) && !is.na(start_year_numeric) && start_year_numeric < 1500L) {
+  message("Note: start_date is very early; window alignment may shift to PEQ data start when windows do not overlap.")
+}
+if (!isTRUE(auto_align_start_date)) {
+  message("Warning: auto_align_start_date is disabled; non-overlapping date windows may produce skip/NA metrics.")
+}
 message(sprintf("Calibration years: %s (end: %s)", calibration_years, as.character(calibration_end_date)))
 message(sprintf("Simulation years: %s", paste(simulation_years, collapse = ", ")))
 message(sprintf("Eligible catchments for this run: %s", length(eligible)))

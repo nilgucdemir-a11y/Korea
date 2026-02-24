@@ -55,6 +55,7 @@ simulation_years <- if (!is.null(cfg$simulation_years_csv)) {
 days_per_year <- parse_int_or_stop(as.character(cfg_value(cfg, "days_per_year", 365L)), "days_per_year", min_value = 1L)
 objective <- normalize_objective(cfg_value(cfg, "objective", "kge"))
 model_type <- tolower(as.character(cfg_value(cfg, "model_type", "snow")))
+auto_align_start_date <- parse_bool(cfg_value(cfg, "auto_align_start_date", TRUE), default = TRUE)
 min_obs <- parse_int_or_stop(as.character(cfg_value(cfg, "min_obs", 365L)), "min_obs", min_value = 30L)
 
 if (!(model_type %in% c("snow", "cmd"))) stop("model_type must be snow or cmd")
@@ -146,19 +147,49 @@ run_one_catchment <- function(catchment_id) {
         E = as.numeric(E),
         Q = as.numeric(Q)
       ) %>%
-      dplyr::filter(!is.na(Date), Date >= start_date) %>%
+      dplyr::filter(!is.na(Date)) %>%
       dplyr::filter(stats::complete.cases(P, E))
 
+    date_range <- date_range_from_df(base_df, date_col = "Date")
+    if (!date_range$has_dates) {
+      stop("No valid Date values found after P/E filtering")
+    }
+
     rows <- lapply(simulation_years, function(y) {
-      end_date <- window_end_from_years(start_date, y, days_per_year = days_per_year)
-      window_df <- base_df[base_df$Date <= end_date, , drop = FALSE]
+      sim_window <- resolve_analysis_window(
+        requested_start_date = start_date,
+        years = y,
+        days_per_year = days_per_year,
+        data_min_date = date_range$min_date,
+        data_max_date = date_range$max_date,
+        auto_align = auto_align_start_date
+      )
+      if (isTRUE(sim_window$adjusted)) {
+        message(sprintf(
+          "[%s] Simulation window(%sy) %s..%s does not overlap data %s..%s; using %s..%s",
+          catchment_id,
+          y,
+          as.character(sim_window$requested_start),
+          as.character(sim_window$requested_end),
+          as.character(date_range$min_date),
+          as.character(date_range$max_date),
+          as.character(sim_window$start_date),
+          as.character(sim_window$end_date)
+        ))
+      }
+
+      window_df <- base_df[
+        base_df$Date >= sim_window$start_date & base_df$Date <= sim_window$end_date,
+        ,
+        drop = FALSE
+      ]
 
       if (nrow(window_df) < min_obs) {
         return(tibble::tibble(
           catchment_id = catchment_id,
           simulation_years = y,
-          simulation_start_date = as.character(start_date),
-          simulation_end_date = as.character(end_date),
+          simulation_start_date = as.character(sim_window$start_date),
+          simulation_end_date = as.character(sim_window$end_date),
           status = "skip",
           reason = sprintf("Not enough rows after filtering (%s)", nrow(window_df)),
           model_type = model_type,
@@ -189,8 +220,8 @@ run_one_catchment <- function(catchment_id) {
         return(tibble::tibble(
           catchment_id = catchment_id,
           simulation_years = y,
-          simulation_start_date = as.character(start_date),
-          simulation_end_date = as.character(end_date),
+          simulation_start_date = as.character(sim_window$start_date),
+          simulation_end_date = as.character(sim_window$end_date),
           status = "error",
           reason = sim_result$reason,
           model_type = model_type,
@@ -223,8 +254,8 @@ run_one_catchment <- function(catchment_id) {
       tibble::tibble(
         catchment_id = catchment_id,
         simulation_years = y,
-        simulation_start_date = as.character(start_date),
-        simulation_end_date = as.character(end_date),
+        simulation_start_date = as.character(sim_window$start_date),
+        simulation_end_date = as.character(sim_window$end_date),
         status = "ok",
         reason = NA_character_,
         model_type = model_type,

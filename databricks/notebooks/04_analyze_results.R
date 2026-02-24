@@ -122,6 +122,30 @@ sim_all$simulation_years <- suppressWarnings(as.integer(sim_all$simulation_years
 cal_ok <- cal_all %>% dplyr::filter(status == "ok")
 sim_ok <- sim_all %>% dplyr::filter(status == "ok", is.finite(simulation_years))
 
+cal_status_summary <- cal_all %>% dplyr::count(status, name = "rows") %>% dplyr::arrange(dplyr::desc(rows))
+sim_status_summary <- sim_all %>% dplyr::count(status, name = "rows") %>% dplyr::arrange(dplyr::desc(rows))
+cal_reason_summary <- cal_all %>%
+  dplyr::filter(status != "ok") %>%
+  dplyr::count(status, reason, name = "rows") %>%
+  dplyr::arrange(dplyr::desc(rows))
+sim_reason_summary <- sim_all %>%
+  dplyr::filter(status != "ok") %>%
+  dplyr::count(status, reason, name = "rows") %>%
+  dplyr::arrange(dplyr::desc(rows))
+
+message("Calibration status summary:")
+print(cal_status_summary)
+message("Simulation status summary:")
+print(sim_status_summary)
+if (nrow(cal_reason_summary) > 0) {
+  message("Top calibration non-ok reasons:")
+  print(utils::head(cal_reason_summary, n = 10))
+}
+if (nrow(sim_reason_summary) > 0) {
+  message("Top simulation non-ok reasons:")
+  print(utils::head(sim_reason_summary, n = 10))
+}
+
 if (nrow(cal_ok) == 0) {
   message("No successful calibration rows found; calibration-specific comparisons will be skipped.")
 }
