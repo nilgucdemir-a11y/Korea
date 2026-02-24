@@ -135,8 +135,8 @@ run_one_catchment <- function(catchment_id) {
         objective = objective,
         optimizer = NA_character_,
         calibration_years = calibration_years,
-        calibration_start_date = as.character(start_date),
-        calibration_end_date = as.character(calibration_end_date),
+        calibration_start_date = format_date_ymd(start_date),
+        calibration_end_date = format_date_ymd(calibration_end_date),
         n_rows_peq = NA_integer_,
         n_rows_calibration = NA_integer_,
         n_obs_metrics = NA_integer_,
@@ -180,15 +180,25 @@ run_one_catchment <- function(catchment_id) {
           message(sprintf(
             "[%s] Calibration window %s..%s does not overlap data %s..%s; using %s..%s",
             catchment_id,
-            as.character(cal_window$requested_start),
-            as.character(cal_window$requested_end),
-            as.character(peq_range$min_date),
-            as.character(peq_range$max_date),
-            as.character(cal_window$start_date),
-            as.character(cal_window$end_date)
+            format_date_ymd(cal_window$requested_start),
+            format_date_ymd(cal_window$requested_end),
+            format_date_ymd(peq_range$min_date),
+            format_date_ymd(peq_range$max_date),
+            format_date_ymd(cal_window$start_date),
+            format_date_ymd(cal_window$end_date)
+          ))
+        }
+        if (isTRUE(cal_window$strict_window)) {
+          message(sprintf(
+            "[%s] Strict zero-year timeline: calibration window kept as %s..%s",
+            catchment_id,
+            format_date_ymd(cal_window$start_date),
+            format_date_ymd(cal_window$end_date)
           ))
         }
       }
+      cal_start_text <- format_date_ymd(cal_window$start_date)
+      cal_end_text <- format_date_ymd(cal_window$end_date)
 
       ts_result <- prepare_model_ts(
         peq_df = peq_df,
@@ -207,8 +217,8 @@ run_one_catchment <- function(catchment_id) {
           objective = objective,
           optimizer = NA_character_,
           calibration_years = calibration_years,
-          calibration_start_date = as.character(cal_window$start_date),
-          calibration_end_date = as.character(cal_window$end_date),
+          calibration_start_date = cal_start_text,
+          calibration_end_date = cal_end_text,
           n_rows_peq = nrow(peq_df),
           n_rows_calibration = NA_integer_,
           n_obs_metrics = NA_integer_,
@@ -248,8 +258,8 @@ run_one_catchment <- function(catchment_id) {
             objective = objective,
             optimizer = cal_result$optimizer_used,
             calibration_years = calibration_years,
-            calibration_start_date = as.character(cal_window$start_date),
-            calibration_end_date = as.character(cal_window$end_date),
+            calibration_start_date = cal_start_text,
+            calibration_end_date = cal_end_text,
             n_rows_peq = nrow(peq_df),
             n_rows_calibration = ts_result$n_rows,
             n_obs_metrics = NA_integer_,
@@ -282,8 +292,8 @@ run_one_catchment <- function(catchment_id) {
             objective = objective,
             optimizer = cal_result$optimizer_used,
             calibration_years = calibration_years,
-            calibration_start_date = as.character(cal_window$start_date),
-            calibration_end_date = as.character(cal_window$end_date),
+            calibration_start_date = cal_start_text,
+            calibration_end_date = cal_end_text,
             n_rows_peq = nrow(peq_df),
             n_rows_calibration = ts_result$n_rows,
             n_obs_metrics = metrics$n_obs,
@@ -308,8 +318,8 @@ run_one_catchment <- function(catchment_id) {
       objective = objective,
       optimizer = NA_character_,
       calibration_years = calibration_years,
-      calibration_start_date = as.character(start_date),
-      calibration_end_date = as.character(calibration_end_date),
+      calibration_start_date = format_date_ymd(start_date),
+      calibration_end_date = format_date_ymd(calibration_end_date),
       n_rows_peq = NA_integer_,
       n_rows_calibration = NA_integer_,
       n_obs_metrics = NA_integer_,

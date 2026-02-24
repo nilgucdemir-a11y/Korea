@@ -169,14 +169,25 @@ run_one_catchment <- function(catchment_id) {
           "[%s] Simulation window(%sy) %s..%s does not overlap data %s..%s; using %s..%s",
           catchment_id,
           y,
-          as.character(sim_window$requested_start),
-          as.character(sim_window$requested_end),
-          as.character(date_range$min_date),
-          as.character(date_range$max_date),
-          as.character(sim_window$start_date),
-          as.character(sim_window$end_date)
+          format_date_ymd(sim_window$requested_start),
+          format_date_ymd(sim_window$requested_end),
+          format_date_ymd(date_range$min_date),
+          format_date_ymd(date_range$max_date),
+          format_date_ymd(sim_window$start_date),
+          format_date_ymd(sim_window$end_date)
         ))
       }
+      if (isTRUE(sim_window$strict_window)) {
+        message(sprintf(
+          "[%s] Strict zero-year timeline: simulation window(%sy) kept as %s..%s",
+          catchment_id,
+          y,
+          format_date_ymd(sim_window$start_date),
+          format_date_ymd(sim_window$end_date)
+        ))
+      }
+      sim_start_text <- format_date_ymd(sim_window$start_date)
+      sim_end_text <- format_date_ymd(sim_window$end_date)
 
       window_df <- base_df[
         base_df$Date >= sim_window$start_date & base_df$Date <= sim_window$end_date,
@@ -188,8 +199,8 @@ run_one_catchment <- function(catchment_id) {
         return(tibble::tibble(
           catchment_id = catchment_id,
           simulation_years = y,
-          simulation_start_date = as.character(sim_window$start_date),
-          simulation_end_date = as.character(sim_window$end_date),
+          simulation_start_date = sim_start_text,
+          simulation_end_date = sim_end_text,
           status = "skip",
           reason = sprintf("Not enough rows after filtering (%s)", nrow(window_df)),
           model_type = model_type,
@@ -220,8 +231,8 @@ run_one_catchment <- function(catchment_id) {
         return(tibble::tibble(
           catchment_id = catchment_id,
           simulation_years = y,
-          simulation_start_date = as.character(sim_window$start_date),
-          simulation_end_date = as.character(sim_window$end_date),
+          simulation_start_date = sim_start_text,
+          simulation_end_date = sim_end_text,
           status = "error",
           reason = sim_result$reason,
           model_type = model_type,
@@ -254,8 +265,8 @@ run_one_catchment <- function(catchment_id) {
       tibble::tibble(
         catchment_id = catchment_id,
         simulation_years = y,
-        simulation_start_date = as.character(sim_window$start_date),
-        simulation_end_date = as.character(sim_window$end_date),
+        simulation_start_date = sim_start_text,
+        simulation_end_date = sim_end_text,
         status = "ok",
         reason = NA_character_,
         model_type = model_type,
@@ -278,7 +289,7 @@ run_one_catchment <- function(catchment_id) {
     tibble::tibble(
       catchment_id = catchment_id,
       simulation_years = NA_integer_,
-      simulation_start_date = as.character(start_date),
+      simulation_start_date = format_date_ymd(start_date),
       simulation_end_date = NA_character_,
       status = "error",
       reason = as.character(e$message),

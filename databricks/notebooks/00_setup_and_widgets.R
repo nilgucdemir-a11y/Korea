@@ -140,8 +140,21 @@ if (sub_region != "KOR") {
   }
 }
 
+start_date_text <- format_date_ymd(start_date)
 calibration_end_date <- window_end_from_years(start_date, calibration_years, days_per_year = days_per_year)
-simulation_end_dates <- vapply(simulation_years, function(y) as.character(window_end_from_years(start_date, y, days_per_year = days_per_year)), character(1))
+calibration_end_date_text <- format_date_ymd(calibration_end_date)
+simulation_end_dates <- vapply(
+  simulation_years,
+  function(y) format_date_ymd(window_end_from_years(start_date, y, days_per_year = days_per_year)),
+  character(1)
+)
+
+if (is_zero_year_start(start_date) && any(simulation_years == 1000L)) {
+  idx_1000 <- which(simulation_years == 1000L)[1]
+  if (!identical(simulation_end_dates[[idx_1000]], "1000-12-31")) {
+    stop("Internal date window mismatch: expected 1000-year end date to be 1000-12-31 from start 0000-01-01")
+  }
+}
 
 # COMMAND ----------
 
@@ -255,9 +268,9 @@ run_config <- list(
   river_dir = river_dir,
   ptq_output_dir = ptq_output_dir,
   ihacres_output_dir = ihacres_output_dir,
-  start_date = as.character(start_date),
+  start_date = start_date_text,
   calibration_years = calibration_years,
-  calibration_end_date = as.character(calibration_end_date),
+  calibration_end_date = calibration_end_date_text,
   simulation_years = as.integer(simulation_years),
   simulation_end_dates = as.list(simulation_end_dates),
   days_per_year = days_per_year,
@@ -289,7 +302,7 @@ task_values_payload <- list(
   parallel_tasks_this_run = as.character(parallel_tasks_this_run),
   catchment_ids_json = catchment_ids_json,
   catchment_count = as.character(length(eligible)),
-  calibration_end_date = as.character(calibration_end_date),
+  calibration_end_date = calibration_end_date_text,
   simulation_years_csv_normalized = paste(simulation_years, collapse = ","),
   runtime_catalog_path = runtime_catalog_path,
   catchment_manifest_path = catchment_manifest_path,
@@ -359,17 +372,29 @@ message("Setup complete.")
 message(sprintf("Country/region: %s", sub_region))
 message(sprintf("Mode: %s", ifelse(use_existing_peq, "Use existing PEQ files", "Build PEQ from forcing files")))
 message(sprintf("Model type: %s", model_type))
-message(sprintf("Start date: %s (format: YYYY-MM-DD)", as.character(start_date)))
+message(sprintf("Start date: %s (format: YYYY-MM-DD)", start_date_text))
 message(sprintf("Auto-align start date to data range when needed: %s", ifelse(auto_align_start_date, "enabled", "disabled")))
 start_year_numeric <- suppressWarnings(as.integer(format(start_date, "%Y")))
-if (isTRUE(auto_align_start_date) && is.finite(start_year_numeric) && !is.na(start_year_numeric) && start_year_numeric < 1500L) {
+if (
+  isTRUE(auto_align_start_date) &&
+  !is_zero_year_start(start_date) &&
+  is.finite(start_year_numeric) &&
+  !is.na(start_year_numeric) &&
+  start_year_numeric < 1500L
+) {
   message("Note: start_date is very early; window alignment may shift to PEQ data start when windows do not overlap.")
 }
 if (!isTRUE(auto_align_start_date)) {
   message("Warning: auto_align_start_date is disabled; non-overlapping date windows may produce skip/NA metrics.")
 }
-message(sprintf("Calibration years: %s (end: %s)", calibration_years, as.character(calibration_end_date)))
+if (is_zero_year_start(start_date)) {
+  message("Strict zero-year timeline is active: requested windows keep 0000-based dates (no auto alignment).")
+}
+message(sprintf("Calibration years: %s (end: %s)", calibration_years, calibration_end_date_text))
 message(sprintf("Simulation years: %s", paste(simulation_years, collapse = ", ")))
+if (is_zero_year_start(start_date) && any(simulation_years == 1000L)) {
+  message("1000-year simulation window confirmed: start 0000-01-01, end 1000-12-31.")
+}
 message(sprintf("Eligible catchments for this run: %s", length(eligible)))
 if (!is.na(catchment_limit)) {
   message(sprintf("Catchment limit applied: %s", catchment_limit))

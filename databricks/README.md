@@ -120,6 +120,7 @@ Notes:
 - If `parallel_concurrency_limit` is omitted, concurrency = selected catchment count.
 - If `auto_align_start_date` is omitted, it defaults to `true`.
   - When enabled, calibration/simulation windows are automatically shifted to PEQ data start if requested windows do not overlap available dates.
+  - For `start_date = 0000-01-01`, strict zero-year windows are preserved (for example, 1000-year window ends at `1000-12-31`).
 - You do **not** need to enter catchment IDs manually in normal workflow runs.
   - Setup generates catchment list automatically.
   - Parallel tasks read from that list.
@@ -201,7 +202,7 @@ Main widgets:
 - `focus_catchments_csv` (optional list for side-by-side comparison)
 - `selected_catchment` (optional hydrograph target)
 
-The notebook reads calibration/simulation metrics and draws comparison plots in notebook output cells.
+The notebook reads calibration/simulation metrics and draws comparison plots (including `qqmath`) in notebook output cells.
 It is view/analysis only and does not save extra files.
 
 ---
@@ -252,6 +253,7 @@ Useful for checking country data before running the full workflow.
 - **Most metrics are `NA` / many `skip` rows**
   - this usually means date windows did not overlap available PEQ dates
   - keep `auto_align_start_date = true` (default), or set `start_date` to match PEQ data start
+  - note: if `start_date = 0000-01-01`, strict zero-year windows are intentionally kept (no auto shift)
   - check calibration/simulation logs for window-alignment messages
 
 - **Failed to resolve references: `tasks.setup_environment.values.catchment_indices_json`**

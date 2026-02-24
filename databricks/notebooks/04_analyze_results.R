@@ -6,6 +6,7 @@
 # MAGIC - compare catchments by calibration/simulation performance
 # MAGIC - inspect distributions by simulation year
 # MAGIC - visualize hydrographs for a selected catchment
+# MAGIC - inspect QQ behavior using `qqmath` plots
 
 # COMMAND ----------
 
@@ -83,6 +84,8 @@ library(readr)
 library(dplyr)
 library(tibble)
 library(ggplot2)
+library(lattice)
+library(hydromad)
 
 read_metrics_with_fallback <- function(summary_path, metrics_dir, metrics_pattern) {
   if (file.exists(summary_path)) {
@@ -326,6 +329,8 @@ selected_catchment <- if (nzchar(selected_catchment_input)) {
   ""
 }
 
+hydro_df_for_qq <- NULL
+
 if (!nzchar(selected_catchment)) {
   message("No catchment is available for hydrograph plotting.")
 } else {
@@ -387,6 +392,7 @@ if (!nzchar(selected_catchment)) {
     if (nrow(hydro_df) == 0) {
       message("Hydrograph series was found but contains no finite flow values.")
     } else {
+      hydro_df_for_qq <- hydro_df
       p_hydro <- ggplot(hydro_df, aes(x = Date, y = flow, color = series)) +
         geom_line(alpha = 0.85) +
         labs(
@@ -398,6 +404,70 @@ if (!nzchar(selected_catchment)) {
         theme_minimal()
       print(p_hydro)
     }
+  }
+}
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## 6) QQ plots (`qqmath`) for fit and flow series
+
+# COMMAND ----------
+
+if (!nzchar(selected_catchment)) {
+  message("Skipping qqmath plots: no selected catchment.")
+} else {
+  fit_path <- file.path(
+    ihacres_output_dir,
+    "calibration_models",
+    paste0(selected_catchment, "_fit.rds")
+  )
+
+  if (file.exists(fit_path)) {
+    fit_obj <- tryCatch(readRDS(fit_path), error = function(e) NULL)
+    if (!is.null(fit_obj)) {
+      fit_qq <- tryCatch(
+        qqmath(
+          fit_obj,
+          type = c("l", "g"),
+          scales = list(y = list(log = TRUE)),
+          xlab = "Standard normal variate",
+          ylab = "Flow (mm/day)",
+          f.value = ppoints(100),
+          tails.n = 50,
+          as.table = TRUE
+        ),
+        error = function(e) NULL
+      )
+      if (!is.null(fit_qq)) {
+        print(fit_qq)
+      } else {
+        message("qqmath(fit) could not be generated for the selected catchment.")
+      }
+    }
+  } else {
+    message(sprintf("Fit file not found for qqmath(fit): %s", fit_path))
+  }
+
+  if (!is.null(hydro_df_for_qq) && nrow(hydro_df_for_qq) > 0) {
+    flow_qq_df <- hydro_df_for_qq %>%
+      dplyr::filter(is.finite(flow), flow > 0)
+    if (nrow(flow_qq_df) > 0) {
+      flow_qq <- lattice::qqmath(
+        ~ flow | series,
+        data = flow_qq_df,
+        distribution = qnorm,
+        type = c("p", "g"),
+        scales = list(y = list(log = TRUE)),
+        xlab = "Standard normal variate",
+        ylab = "Flow (log scale)"
+      )
+      print(flow_qq)
+    } else {
+      message("Skipping flow qqmath: no positive finite flow values available.")
+    }
+  } else {
+    message("Skipping flow qqmath: hydrograph data is not available.")
   }
 }
 

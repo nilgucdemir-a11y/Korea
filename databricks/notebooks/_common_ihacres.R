@@ -132,6 +132,24 @@ window_end_from_years <- function(start_date, years, days_per_year = 365L) {
   start_date + as.integer(years * days_per_year) - 1L
 }
 
+format_date_ymd <- function(x) {
+  d <- as.Date(x)
+  if (is.na(d)) return(as.character(d))
+  yr <- suppressWarnings(as.integer(format(d, "%Y")))
+  md <- format(d, "%m-%d")
+  if (is.finite(yr) && !is.na(yr)) {
+    return(sprintf("%04d-%s", yr, md))
+  }
+  as.character(d)
+}
+
+is_zero_year_start <- function(x) {
+  d <- as.Date(x)
+  yr <- suppressWarnings(as.integer(format(d, "%Y")))
+  md <- format(d, "%m-%d")
+  is.finite(yr) && !is.na(yr) && yr == 0L && identical(md, "01-01")
+}
+
 date_range_from_df <- function(df, date_col = "Date") {
   if (!is.data.frame(df) || !(date_col %in% names(df))) {
     return(list(has_dates = FALSE, min_date = as.Date(NA), max_date = as.Date(NA)))
@@ -161,12 +179,25 @@ resolve_analysis_window <- function(
   requested_start <- as.Date(requested_start_date)
   requested_end <- window_end_from_years(requested_start, years, days_per_year = days_per_year)
 
+  # Keep the synthetic zero-year timeline strict when explicitly requested.
+  if (is_zero_year_start(requested_start)) {
+    return(list(
+      start_date = requested_start,
+      end_date = requested_end,
+      adjusted = FALSE,
+      strict_window = TRUE,
+      requested_start = requested_start,
+      requested_end = requested_end
+    ))
+  }
+
   has_overlap <- !(requested_end < data_min_date || requested_start > data_max_date)
   if (has_overlap || !auto_align) {
     return(list(
       start_date = requested_start,
       end_date = requested_end,
       adjusted = FALSE,
+      strict_window = FALSE,
       requested_start = requested_start,
       requested_end = requested_end
     ))
@@ -179,6 +210,7 @@ resolve_analysis_window <- function(
     start_date = aligned_start,
     end_date = aligned_end,
     adjusted = TRUE,
+    strict_window = FALSE,
     requested_start = requested_start,
     requested_end = requested_end
   )
@@ -819,16 +851,16 @@ prepare_model_ts <- function(peq_df, start_date, end_date, min_obs = 365L, requi
     reason <- if (isTRUE(data_range$has_dates)) {
       sprintf(
         "No rows in selected date window (%s..%s); available dates are %s..%s",
-        as.character(start_date),
-        as.character(end_date),
-        as.character(data_range$min_date),
-        as.character(data_range$max_date)
+        format_date_ymd(start_date),
+        format_date_ymd(end_date),
+        format_date_ymd(data_range$min_date),
+        format_date_ymd(data_range$max_date)
       )
     } else {
       sprintf(
         "No rows in selected date window (%s..%s); PEQ has no valid dates",
-        as.character(start_date),
-        as.character(end_date)
+        format_date_ymd(start_date),
+        format_date_ymd(end_date)
       )
     }
     return(list(status = "skip", reason = reason))
@@ -848,8 +880,8 @@ prepare_model_ts <- function(peq_df, start_date, end_date, min_obs = 365L, requi
         "Not enough rows after filtering (%s of %s in %s..%s; min_obs=%s)",
         nrow(df),
         nrow(df0),
-        as.character(start_date),
-        as.character(end_date),
+        format_date_ymd(start_date),
+        format_date_ymd(end_date),
         min_obs
       )
     ))
@@ -913,21 +945,8 @@ calibrate_hydromad_model <- function(
   model_type = "snow"
 ) {
   model <- build_hydromad_model(model_ts = model_ts, model_type = model_type, objective = objective)
-  optimizer_used <- optimization_method
-
-  fit <- tryCatch(
-    hydromad::fitByOptim(model, samples = samples, method = optimization_method),
-    error = function(err) {
-      if (toupper(optimization_method) != "PORT") {
-        message(sprintf("Optimizer '%s' failed (%s). Falling back to PORT.", optimization_method, err$message))
-        optimizer_used <<- "PORT"
-        return(hydromad::fitByOptim(model, samples = samples, method = "PORT"))
-      }
-      stop(err)
-    }
-  )
-
-  list(status = "ok", fit = fit, optimizer_used = optimizer_used)
+  fit <- hydromad::fitByOptim(model, samples = samples, method = optimization_method)
+  list(status = "ok", fit = fit, optimizer_used = optimization_method)
 }
 
 extract_sim_vector <- function(sim_obj) {
@@ -951,25 +970,20 @@ extract_sim_vector <- function(sim_obj) {
 }
 
 simulate_with_fit <- function(fit, model_ts, model_type = "snow", objective = "kge") {
-  sim_obj <- tryCatch(stats::predict(fit, newdata = model_ts), error = function(e) NULL)
+  sim_obj <- tryCatch(
+    stats::predict(fit, newdata = model_ts),
+    error = function(e) {
+      return(structure(list(error_message = as.character(e$message)), class = "predict_error"))
+    }
+  )
   method_used <- "predict_fit_newdata"
 
-  if (is.null(sim_obj)) {
-    pars <- tryCatch(stats::coef(fit), error = function(e) NULL)
-    model <- build_hydromad_model(model_ts = model_ts, model_type = model_type, objective = objective)
-    model_with_pars <- if (is.null(pars)) {
-      NULL
-    } else {
-      tryCatch(do.call(stats::update, c(list(object = model), as.list(pars))), error = function(e) NULL)
-    }
-
-    sim_obj <- tryCatch(stats::predict(model_with_pars), error = function(e) NULL)
-    method_used <- "predict_model_with_fitted_params"
-  }
-
-  if (is.null(sim_obj)) {
-    sim_obj <- tryCatch(stats::fitted(fit), error = function(e) NULL)
-    method_used <- "fitted_fit_fallback"
+  if (inherits(sim_obj, "predict_error")) {
+    return(list(
+      status = "error",
+      reason = sprintf("predict(fit, newdata=model_ts) failed: %s", sim_obj$error_message),
+      method_used = method_used
+    ))
   }
 
   sim_q <- extract_sim_vector(sim_obj)
