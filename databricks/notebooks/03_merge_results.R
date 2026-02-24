@@ -107,12 +107,13 @@ run_summary_path <- file.path(summary_dir, "run_summary.csv")
 
 # COMMAND ----------
 
-readr::write_csv(cal_all, cal_all_path)
-readr::write_csv(sim_all, sim_all_path)
-readr::write_csv(cal_status_summary, cal_status_path)
-readr::write_csv(sim_status_summary_by_year, sim_status_by_year_path)
-readr::write_csv(sim_perf_by_year, sim_perf_by_year_path)
-readr::write_csv(run_summary, run_summary_path)
+write_csv_verified(cal_all, cal_all_path, label = "summary calibration_metrics_all_catchments CSV")
+write_csv_verified(sim_all, sim_all_path, label = "summary simulation_metrics_all_catchments CSV")
+write_csv_verified(cal_status_summary, cal_status_path, label = "summary calibration_status_summary CSV")
+write_csv_verified(sim_status_summary_by_year, sim_status_by_year_path, label = "summary simulation_status_summary_by_year CSV")
+write_csv_verified(sim_perf_by_year, sim_perf_by_year_path, label = "summary simulation_performance_by_year CSV")
+write_csv_verified(run_summary, run_summary_path, label = "summary run_summary CSV")
+message("Summary output save verification completed.")
 
 safe_set_task_value("calibration_metrics_all_path", cal_all_path)
 safe_set_task_value("simulation_metrics_all_path", sim_all_path)

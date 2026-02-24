@@ -130,7 +130,7 @@ run_one_catchment <- function(catchment_id) {
       stop(peq_result$reason)
     }
 
-    saveRDS(peq_result$data, peq_cache_path)
+    save_rds_verified(peq_result$data, peq_cache_path, label = "simulation PEQ cache RDS")
     peq_result$data
   }
 
@@ -260,7 +260,7 @@ run_one_catchment <- function(catchment_id) {
         catchment_id = catchment_id,
         simulation_years = y
       )
-      readr::write_csv(sim_ts, ts_path)
+      write_csv_verified(sim_ts, ts_path, label = "simulation timeseries CSV")
 
       tibble::tibble(
         catchment_id = catchment_id,
@@ -308,7 +308,7 @@ run_one_catchment <- function(catchment_id) {
     )
   })
 
-  readr::write_csv(result_rows, metrics_path)
+  write_csv_verified(result_rows, metrics_path, label = "simulation metrics CSV")
 
   run_log <- list(
     catchment_id = catchment_id,
@@ -316,7 +316,11 @@ run_one_catchment <- function(catchment_id) {
     metrics_path = metrics_path,
     finished_utc = format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ", tz = "UTC")
   )
-  writeLines(jsonlite::toJSON(run_log, auto_unbox = TRUE, pretty = TRUE), log_path)
+  write_text_verified(
+    jsonlite::toJSON(run_log, auto_unbox = TRUE, pretty = TRUE),
+    log_path,
+    label = "simulation log JSON"
+  )
 
   result_rows
 }
@@ -338,7 +342,7 @@ if (length(catchment_ids) == 1) {
   safe_set_task_value("simulation_status", ifelse(any(all_rows$status == "ok"), "ok", all_rows$status[[1]]))
 } else {
   batch_metrics_path <- file.path(ihacres_output_dir, "simulation_logs", "bulk_simulation_results.csv")
-  readr::write_csv(all_rows, batch_metrics_path)
+  write_csv_verified(all_rows, batch_metrics_path, label = "bulk simulation metrics CSV")
   safe_set_task_value("simulation_metrics_path", batch_metrics_path)
   safe_set_task_value("simulation_status", ifelse(all(all_rows$status == "ok"), "ok", "mixed"))
 }

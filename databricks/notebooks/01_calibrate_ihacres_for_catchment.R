@@ -151,12 +151,16 @@ run_one_catchment <- function(catchment_id) {
       )
     } else {
       peq_df <- peq_result$data
-      saveRDS(peq_df, peq_rds_path)
-      if (write_csv_out) readr::write_csv(peq_df, peq_csv_path)
+      save_rds_verified(peq_df, peq_rds_path, label = "PEQ cache RDS")
+      if (write_csv_out) {
+        write_csv_verified(peq_df, peq_csv_path, label = "PEQ cache CSV")
+      }
 
       if (!use_existing_peq) {
-        saveRDS(peq_df, ptq_fallback_rds)
-        if (write_csv_out) readr::write_csv(peq_df, ptq_fallback_csv)
+        save_rds_verified(peq_df, ptq_fallback_rds, label = "PTQ fallback RDS")
+        if (write_csv_out) {
+          write_csv_verified(peq_df, ptq_fallback_csv, label = "PTQ fallback CSV")
+        }
       }
 
       peq_range <- date_range_from_df(peq_df, date_col = "Date")
@@ -240,7 +244,7 @@ run_one_catchment <- function(catchment_id) {
           model_type = model_type
         )
 
-        saveRDS(cal_result$fit, fit_path)
+        save_rds_verified(cal_result$fit, fit_path, label = "calibration fit RDS")
 
         sim_result <- simulate_with_fit(
           fit = cal_result$fit,
@@ -282,7 +286,7 @@ run_one_catchment <- function(catchment_id) {
             catchment_id = catchment_id,
             stage = "calibration"
           )
-          readr::write_csv(cal_ts, cal_ts_path)
+          write_csv_verified(cal_ts, cal_ts_path, label = "calibration timeseries CSV")
 
           tibble::tibble(
             catchment_id = catchment_id,
@@ -334,7 +338,7 @@ run_one_catchment <- function(catchment_id) {
     )
   })
 
-  readr::write_csv(result_row, metrics_path)
+  write_csv_verified(result_row, metrics_path, label = "calibration metrics CSV")
 
   run_log <- list(
     catchment_id = catchment_id,
@@ -344,7 +348,11 @@ run_one_catchment <- function(catchment_id) {
     fit_path = result_row$fit_path[[1]],
     finished_utc = result_row$run_finished_utc[[1]]
   )
-  writeLines(jsonlite::toJSON(run_log, auto_unbox = TRUE, pretty = TRUE), log_path)
+  write_text_verified(
+    jsonlite::toJSON(run_log, auto_unbox = TRUE, pretty = TRUE),
+    log_path,
+    label = "calibration log JSON"
+  )
 
   result_row
 }
@@ -367,7 +375,7 @@ if (length(catchment_ids) == 1) {
   safe_set_task_value("fit_path", all_rows$fit_path[[1]])
 } else {
   batch_metrics_path <- file.path(ihacres_output_dir, "calibration_logs", "bulk_calibration_results.csv")
-  readr::write_csv(all_rows, batch_metrics_path)
+  write_csv_verified(all_rows, batch_metrics_path, label = "bulk calibration metrics CSV")
   safe_set_task_value("calibration_status", ifelse(all(all_rows$status == "ok"), "ok", "mixed"))
   safe_set_task_value("calibration_metrics_path", batch_metrics_path)
   safe_set_task_value("fit_path", "")

@@ -124,6 +124,7 @@ Notes:
 - You do **not** need to enter catchment IDs manually in normal workflow runs.
   - Setup generates catchment list automatically.
   - Parallel tasks read from that list.
+- Output writes are verified immediately (file exists and is non-empty) for setup, calibration, simulation, and merge outputs.
 
 ---
 
@@ -255,6 +256,10 @@ Useful for checking country data before running the full workflow.
   - keep `auto_align_start_date = true` (default), or set `start_date` to match PEQ data start
   - note: if `start_date = 0000-01-01`, strict zero-year windows are intentionally kept (no auto shift)
   - check calibration/simulation logs for window-alignment messages
+
+- **Save verification failed (file missing/empty)**
+  - check volume/path permissions and free space
+  - verify `ihacres_output_dir` and related paths are valid for the running cluster
 
 - **Failed to resolve references: `tasks.setup_environment.values.catchment_indices_json`**
   - setup task could not publish required task values

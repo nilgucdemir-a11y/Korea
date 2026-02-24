@@ -113,7 +113,7 @@ for (cid in catchment_list) {
     standardized <- normalize_peq_df(catchment_data, catchment_id = cid) %>%
       dplyr::select(P, E, Q, Date)
 
-    saveRDS(standardized, out_rds)
+    save_rds_verified(standardized, out_rds, label = "standardized catchment RDS")
     processed <<- processed + 1L
     TRUE
   }, error = function(e) {

@@ -214,7 +214,7 @@ if (length(eligible) == 0) stop("No eligible catchments were found for the selec
 runtime_catalog <- subset_catalog_for_catchments(catalog, eligible)
 runtime_catalog_path <- file.path(ihacres_output_dir, "manifests", "runtime_catalog.rds")
 catchment_manifest_path <- file.path(ihacres_output_dir, "manifests", "catchment_manifest.csv")
-saveRDS(runtime_catalog, runtime_catalog_path)
+save_rds_verified(runtime_catalog, runtime_catalog_path, label = "runtime catalog RDS")
 
 parallel_concurrency_limit <- if (!is.na(parallel_concurrency_limit_override) && is.finite(parallel_concurrency_limit_override)) {
   min(as.integer(parallel_concurrency_limit_override), length(eligible))
@@ -244,7 +244,7 @@ catchment_manifest <- if (identical(runtime_catalog$mode, "existing_peq")) {
     op_count = op_count
   )
 }
-readr::write_csv(catchment_manifest, catchment_manifest_path)
+write_csv_verified(catchment_manifest, catchment_manifest_path, label = "catchment manifest CSV")
 
 catchment_ids_json <- jsonlite::toJSON(as.list(eligible), auto_unbox = TRUE)
 catchment_indices_json <- jsonlite::toJSON(as.list(seq_along(eligible)), auto_unbox = TRUE)
@@ -293,7 +293,11 @@ run_config <- list(
 )
 
 config_path <- file.path(ihacres_output_dir, "run_config.json")
-writeLines(jsonlite::toJSON(run_config, auto_unbox = TRUE, pretty = TRUE), config_path)
+write_text_verified(
+  jsonlite::toJSON(run_config, auto_unbox = TRUE, pretty = TRUE),
+  config_path,
+  label = "run config JSON"
+)
 
 task_values_payload_path <- "/tmp/ihacres_task_values_payload.json"
 task_values_payload <- list(
@@ -310,7 +314,11 @@ task_values_payload <- list(
   region_eligible_catchments = as.character(region_eligible_catchments),
   parallel_concurrency_limit = as.character(parallel_concurrency_limit)
 )
-writeLines(jsonlite::toJSON(task_values_payload, auto_unbox = TRUE, pretty = TRUE), task_values_payload_path)
+write_text_verified(
+  jsonlite::toJSON(task_values_payload, auto_unbox = TRUE, pretty = TRUE),
+  task_values_payload_path,
+  label = "task values payload JSON"
+)
 message(sprintf("Task values payload staged at: %s", task_values_payload_path))
 
 # COMMAND ----------
@@ -369,6 +377,7 @@ message(sprintf("Task values payload staged at: %s", task_values_payload_path))
 # COMMAND ----------
 
 message("Setup complete.")
+message("Output save verification: enabled (exists + non-empty checks).")
 message(sprintf("Country/region: %s", sub_region))
 message(sprintf("Mode: %s", ifelse(use_existing_peq, "Use existing PEQ files", "Build PEQ from forcing files")))
 message(sprintf("Model type: %s", model_type))
