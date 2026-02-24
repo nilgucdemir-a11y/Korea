@@ -202,9 +202,16 @@ Main widgets:
 - `top_n`
 - `focus_catchments_csv` (optional list for side-by-side comparison)
 - `selected_catchment` (optional hydrograph target)
+- `simulate_n` (number of draws for `simulate()` model-output preview)
 
 The notebook reads calibration/simulation metrics and draws comparison plots (including `qqmath`) in notebook output cells.
 It is view/analysis only and does not save extra files.
+
+It also exposes hydromad model-output inspection for a selected catchment fit:
+- `print()`, `summary()`, `objFunVal()`
+- `coef()`, `fitted()`, `residuals()`, `observed()`
+- `predict()`, `update()`, `simulate()`
+- `xyplot()`, `qqmath()`
 
 ---
 

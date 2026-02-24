@@ -6,6 +6,7 @@
 # MAGIC - compare catchments by calibration/simulation performance
 # MAGIC - inspect distributions by simulation year
 # MAGIC - visualize hydrographs for a selected catchment
+# MAGIC - inspect hydromad outputs: print/summary/objFunVal/coef/fitted/residuals/observed/predict/update/simulate
 # MAGIC - inspect QQ behavior using `qqmath` plots
 
 # COMMAND ----------
@@ -22,6 +23,7 @@ if (exists("dbutils")) {
   dbutils.widgets.dropdown("metric_to_rank", "KGE", c("KGE", "NSE", "RMSE"), "Metric for ranking")
   dbutils.widgets.text("top_n", "12", "Top N catchments to highlight")
   dbutils.widgets.text("selected_catchment", "", "Catchment ID for hydrograph (optional)")
+  dbutils.widgets.text("simulate_n", "20", "simulate() draws for hydromad model output")
 }
 
 # COMMAND ----------
@@ -38,6 +40,7 @@ analysis_year_input <- trimws(get_widget_or_default("analysis_year", ""))
 metric_to_rank <- toupper(trimws(get_widget_or_default("metric_to_rank", "KGE")))
 top_n <- parse_int_or_stop(get_widget_or_default("top_n", "12"), "top_n", min_value = 1L)
 selected_catchment_input <- trimws(get_widget_or_default("selected_catchment", ""))
+simulate_n <- parse_int_or_stop(get_widget_or_default("simulate_n", "20"), "simulate_n", min_value = 1L)
 
 if (!(metric_to_rank %in% c("KGE", "NSE", "RMSE"))) {
   stop("metric_to_rank must be one of: KGE, NSE, RMSE")
@@ -330,6 +333,12 @@ selected_catchment <- if (nzchar(selected_catchment_input)) {
 }
 
 hydro_df_for_qq <- NULL
+fit_path_selected <- if (nzchar(selected_catchment)) {
+  file.path(ihacres_output_dir, "calibration_models", paste0(selected_catchment, "_fit.rds"))
+} else {
+  ""
+}
+fit_obj_selected <- NULL
 
 if (!nzchar(selected_catchment)) {
   message("No catchment is available for hydrograph plotting.")
@@ -410,43 +419,208 @@ if (!nzchar(selected_catchment)) {
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## 6) QQ plots (`qqmath`) for fit and flow series
+# MAGIC ## 6) Hydromad model output options (selected catchment)
+
+# COMMAND ----------
+
+if (!nzchar(selected_catchment)) {
+  message("Skipping hydromad model-output section: no selected catchment.")
+} else {
+  if (!file.exists(fit_path_selected)) {
+    message(sprintf("Fit file not found for model-output inspection: %s", fit_path_selected))
+  } else {
+    fit_obj_selected <- tryCatch(
+      readRDS(fit_path_selected),
+      error = function(e) {
+        message(sprintf("Unable to read fit object: %s", e$message))
+        NULL
+      }
+    )
+
+    if (!is.null(fit_obj_selected)) {
+      message("print(fit_obj):")
+      print(fit_obj_selected)
+
+      message("summary(fit_obj):")
+      print(summary(fit_obj_selected))
+
+      obj_fun_val <- tryCatch(
+        objFunVal(fit_obj_selected),
+        error = function(e) {
+          message(sprintf("objFunVal(fit_obj) is not available: %s", e$message))
+          NULL
+        }
+      )
+      if (!is.null(obj_fun_val)) {
+        message("objFunVal(fit_obj):")
+        print(obj_fun_val)
+      }
+
+      coef_vals <- tryCatch(
+        stats::coef(fit_obj_selected),
+        error = function(e) {
+          message(sprintf("coef(fit_obj) failed: %s", e$message))
+          NULL
+        }
+      )
+      if (!is.null(coef_vals)) {
+        message("coef(fit_obj):")
+        print(coef_vals)
+      }
+
+      series_to_df <- function(x, label) {
+        if (is.null(x)) return(NULL)
+        if (inherits(x, "zoo")) {
+          vals <- zoo::coredata(x)
+          if (is.matrix(vals)) vals <- vals[, 1]
+          return(tibble::tibble(Date = as.Date(zoo::index(x)), value = as.numeric(vals), series = label))
+        }
+        vals <- suppressWarnings(as.numeric(x))
+        vals <- vals[is.finite(vals)]
+        if (length(vals) == 0) return(NULL)
+        tibble::tibble(step = seq_along(vals), value = vals, series = label)
+      }
+
+      fitted_series <- tryCatch(
+        stats::fitted(fit_obj_selected),
+        error = function(e) {
+          message(sprintf("fitted(fit_obj) failed: %s", e$message))
+          NULL
+        }
+      )
+      residual_series <- tryCatch(
+        stats::residuals(fit_obj_selected),
+        error = function(e) {
+          message(sprintf("residuals(fit_obj) failed: %s", e$message))
+          NULL
+        }
+      )
+      observed_series <- tryCatch(
+        hydromad::observed(fit_obj_selected),
+        error = function(e) {
+          message(sprintf("observed(fit_obj) failed: %s", e$message))
+          NULL
+        }
+      )
+      predict_series <- tryCatch(
+        stats::predict(fit_obj_selected),
+        error = function(e) {
+          message(sprintf("predict(fit_obj) failed: %s", e$message))
+          NULL
+        }
+      )
+
+      series_preview <- dplyr::bind_rows(Filter(
+        Negate(is.null),
+        list(
+          series_to_df(observed_series, "observed"),
+          series_to_df(fitted_series, "fitted"),
+          series_to_df(residual_series, "residuals"),
+          series_to_df(predict_series, "predict")
+        )
+      ))
+
+      if (nrow(series_preview) > 0) {
+        message("Preview of observed/fitted/residuals/predict series:")
+        print(utils::head(series_preview, 20))
+        if (exists("display", mode = "function")) {
+          try(display(series_preview), silent = TRUE)
+        }
+      }
+
+      updated_fit <- tryCatch(
+        stats::update(fit_obj_selected),
+        error = function(e) {
+          message(sprintf("update(fit_obj) failed: %s", e$message))
+          NULL
+        }
+      )
+      if (!is.null(updated_fit)) {
+        message(sprintf("update(fit_obj) succeeded; class: %s", paste(class(updated_fit), collapse = ", ")))
+      }
+
+      sim_draws <- tryCatch(
+        stats::simulate(fit_obj_selected, nsim = simulate_n),
+        error = function(e) {
+          message(sprintf("simulate(fit_obj, nsim=%s) failed: %s", simulate_n, e$message))
+          NULL
+        }
+      )
+      if (!is.null(sim_draws)) {
+        message(sprintf("simulate(fit_obj, nsim=%s) succeeded.", simulate_n))
+        if (inherits(sim_draws, "zoo")) {
+          sim_draws_df <- as.data.frame(zoo::coredata(sim_draws))
+          print(utils::head(sim_draws_df, 10))
+        } else if (is.matrix(sim_draws) || is.data.frame(sim_draws)) {
+          print(utils::head(as.data.frame(sim_draws), 10))
+        } else if (is.list(sim_draws)) {
+          lens <- vapply(sim_draws, length, integer(1))
+          print(summary(lens))
+        } else {
+          print(utils::head(as.vector(sim_draws), 10))
+        }
+      }
+
+      xy_base <- tryCatch(
+        xyplot(fit_obj_selected),
+        error = function(e) {
+          message(sprintf("xyplot(fit_obj) failed: %s", e$message))
+          NULL
+        }
+      )
+      if (!is.null(xy_base)) {
+        print(xy_base)
+      }
+
+      xy_with_p <- tryCatch(
+        xyplot(fit_obj_selected, with.P = TRUE),
+        error = function(e) {
+          message(sprintf("xyplot(fit_obj, with.P=TRUE) failed: %s", e$message))
+          NULL
+        }
+      )
+      if (!is.null(xy_with_p)) {
+        print(xy_with_p)
+      }
+    }
+  }
+}
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## 7) QQ plots (`qqmath`) for fit and flow series
 
 # COMMAND ----------
 
 if (!nzchar(selected_catchment)) {
   message("Skipping qqmath plots: no selected catchment.")
 } else {
-  fit_path <- file.path(
-    ihacres_output_dir,
-    "calibration_models",
-    paste0(selected_catchment, "_fit.rds")
-  )
+  if (is.null(fit_obj_selected) && file.exists(fit_path_selected)) {
+    fit_obj_selected <- tryCatch(readRDS(fit_path_selected), error = function(e) NULL)
+  }
 
-  if (file.exists(fit_path)) {
-    fit_obj <- tryCatch(readRDS(fit_path), error = function(e) NULL)
-    if (!is.null(fit_obj)) {
-      fit_qq <- tryCatch(
-        qqmath(
-          fit_obj,
-          type = c("l", "g"),
-          scales = list(y = list(log = TRUE)),
-          xlab = "Standard normal variate",
-          ylab = "Flow (mm/day)",
-          f.value = ppoints(100),
-          tails.n = 50,
-          as.table = TRUE
-        ),
-        error = function(e) NULL
-      )
-      if (!is.null(fit_qq)) {
-        print(fit_qq)
-      } else {
-        message("qqmath(fit) could not be generated for the selected catchment.")
-      }
+  if (!is.null(fit_obj_selected)) {
+    fit_qq <- tryCatch(
+      qqmath(
+        fit_obj_selected,
+        type = c("l", "g"),
+        scales = list(y = list(log = TRUE)),
+        xlab = "Standard normal variate",
+        ylab = "Flow (mm/day)",
+        f.value = ppoints(100),
+        tails.n = 50,
+        as.table = TRUE
+      ),
+      error = function(e) NULL
+    )
+    if (!is.null(fit_qq)) {
+      print(fit_qq)
+    } else {
+      message("qqmath(fit) could not be generated for the selected catchment.")
     }
   } else {
-    message(sprintf("Fit file not found for qqmath(fit): %s", fit_path))
+    message(sprintf("Fit file not found for qqmath(fit): %s", fit_path_selected))
   }
 
   if (!is.null(hydro_df_for_qq) && nrow(hydro_df_for_qq) > 0) {
