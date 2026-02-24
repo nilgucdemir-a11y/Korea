@@ -49,6 +49,7 @@ Despite the filename, the workflow is now dynamic:
 - `notebooks/01_calibrate_ihacres_for_catchment.R`
 - `notebooks/02_simulate_ihacres_for_catchment.R`
 - `notebooks/03_merge_results.R`
+- `notebooks/04_analyze_results.R` (interactive analysis and comparison plots)
 - `notebooks/_common_ihacres.R` (shared helpers)
 - `notebooks/_discover_catchments.R` (utility notebook for catchment discovery/conversion)
 
@@ -180,6 +181,25 @@ Important:
 ### Step 6: Collect outputs
 
 See output directories and summary files below.
+
+### Optional: Analyze and compare catchments (interactive)
+
+Run:
+
+- `/Workspace/Shared/ihacres/notebooks/04_analyze_results`
+
+Main widgets:
+
+- `run_config_path` (optional)
+- `ihacres_output_dir` (optional override)
+- `analysis_year` (optional; defaults to latest simulation year)
+- `metric_to_rank` (`KGE`, `NSE`, `RMSE`)
+- `top_n`
+- `focus_catchments_csv` (optional list for side-by-side comparison)
+- `selected_catchment` (optional hydrograph target)
+
+The notebook reads calibration/simulation metrics and draws comparison plots in notebook output cells.
+It is view/analysis only and does not save extra files.
 
 ---
 
