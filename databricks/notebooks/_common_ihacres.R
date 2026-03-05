@@ -221,24 +221,51 @@ safe_dir_create <- function(path) {
   invisible(path)
 }
 
-verify_saved_file <- function(path, label = "file", require_non_empty = TRUE, min_bytes = 1L) {
+verify_saved_file <- function(
+  path,
+  label = "file",
+  require_non_empty = TRUE,
+  min_bytes = 1L,
+  max_attempts = 8L,
+  initial_wait_seconds = 0.15,
+  wait_backoff = 1.6
+) {
   p <- as.character(path)
   if (length(p) == 0 || is.na(p[[1]]) || !nzchar(p[[1]])) {
     stop(sprintf("Invalid save path for %s", label))
   }
   p <- p[[1]]
-  if (!file.exists(p)) {
-    stop(sprintf("%s was not saved (file missing): %s", label, p))
+
+  attempts <- as.integer(max(1L, max_attempts))
+  wait_s <- as.numeric(max(0, initial_wait_seconds))
+  last_reason <- "unknown"
+
+  for (attempt in seq_len(attempts)) {
+    if (!file.exists(p)) {
+      last_reason <- sprintf("file missing: %s", p)
+    } else {
+      info <- file.info(p)
+      if (nrow(info) == 0 || is.na(info$size[[1]])) {
+        last_reason <- sprintf("unable to read file info: %s", p)
+      } else if (require_non_empty && info$size[[1]] < as.integer(min_bytes)) {
+        last_reason <- sprintf("file is empty (size=%s): %s", info$size[[1]], p)
+      } else {
+        return(invisible(TRUE))
+      }
+    }
+
+    if (attempt < attempts && wait_s > 0) {
+      Sys.sleep(wait_s)
+      wait_s <- wait_s * as.numeric(wait_backoff)
+    }
   }
 
-  info <- file.info(p)
-  if (nrow(info) == 0 || is.na(info$size[[1]])) {
-    stop(sprintf("%s save verification failed (unable to read file info): %s", label, p))
-  }
-
-  if (require_non_empty && info$size[[1]] < as.integer(min_bytes)) {
-    stop(sprintf("%s save verification failed (file is empty): %s", label, p))
-  }
+  stop(sprintf(
+    "%s save verification failed after %s attempts: %s",
+    label,
+    attempts,
+    last_reason
+  ))
 
   invisible(TRUE)
 }
@@ -256,7 +283,31 @@ write_csv_verified <- function(df, path, label = "CSV file", ...) {
 }
 
 write_text_verified <- function(text, path, label = "text file") {
-  writeLines(text, path)
+  p <- as.character(path)
+  if (length(p) == 0 || is.na(p[[1]]) || !nzchar(p[[1]])) {
+    stop(sprintf("Invalid save path for %s", label))
+  }
+  p <- p[[1]]
+
+  tmp <- sprintf(
+    "%s.__tmp__%s_%s",
+    p,
+    Sys.getpid(),
+    format(Sys.time(), "%Y%m%d%H%M%OS6")
+  )
+
+  writeLines(text, tmp, useBytes = TRUE)
+  verify_saved_file(tmp, label = sprintf("%s temp file", label), require_non_empty = TRUE, min_bytes = 1L)
+
+  renamed <- tryCatch(file.rename(tmp, p), error = function(e) FALSE)
+  if (!isTRUE(renamed)) {
+    copied <- tryCatch(file.copy(tmp, p, overwrite = TRUE), error = function(e) FALSE)
+    if (!isTRUE(copied)) {
+      stop(sprintf("Unable to move temp file into final path for %s: %s", label, p))
+    }
+    unlink(tmp, force = TRUE)
+  }
+
   verify_saved_file(path, label = label, require_non_empty = TRUE, min_bytes = 1L)
   invisible(path)
 }

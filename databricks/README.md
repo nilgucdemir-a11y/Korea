@@ -265,6 +265,7 @@ Useful for checking country data before running the full workflow.
   - check calibration/simulation logs for window-alignment messages
 
 - **Save verification failed (file missing/empty)**
+  - verification includes automatic retry/backoff for transient storage delays
   - check volume/path permissions and free space
   - verify `ihacres_output_dir` and related paths are valid for the running cluster
 
