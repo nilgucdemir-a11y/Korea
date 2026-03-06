@@ -82,7 +82,6 @@ library(tibble)
 library(jsonlite)
 library(zoo)
 library(hydromad)
-library(hydroGOF)
 
 catchment_ids <- resolve_requested_catchments(
   catchment_id_input = catchment_id_input,

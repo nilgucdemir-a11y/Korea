@@ -279,6 +279,7 @@ Useful for checking country data before running the full workflow.
 - **Hydromad package issues**
   - setup installs dependencies automatically
   - rerun setup task if cluster was restarted
+  - if `hydroGOF` is unavailable on a worker, metrics now fall back to base-R formulas (KGE/NSE/RMSE) instead of failing the task
 
 - **Parallelism too high for cluster**
   - set `parallel_concurrency_limit` in `advanced_config_json`

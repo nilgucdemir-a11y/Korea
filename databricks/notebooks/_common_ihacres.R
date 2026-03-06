@@ -10,7 +10,7 @@
 ensure_packages_installed <- function() {
   required_cran <- c(
     "zoo", "latticeExtra", "polynom", "car", "Hmisc", "reshape",
-    "DEoptim", "dream", "hydroGOF", "ggplot2", "nloptr", "dplyr",
+    "DEoptim", "dream", "ggplot2", "nloptr", "dplyr",
     "readr", "tibble", "jsonlite", "purrr"
   )
 
@@ -1107,10 +1107,37 @@ evaluate_simulation_metrics <- function(sim_q, obs_q) {
     return(list(KGE = NA_real_, NSE = NA_real_, RMSE = NA_real_, n_obs = n_obs))
   }
 
-  list(
-    KGE = hydroGOF::KGE(sim_q[valid], obs_q[valid], na.rm = TRUE),
-    NSE = hydroGOF::NSE(sim_q[valid], obs_q[valid], na.rm = TRUE),
-    RMSE = hydroGOF::rmse(sim_q[valid], obs_q[valid], na.rm = TRUE),
-    n_obs = n_obs
-  )
+  s <- as.numeric(sim_q[valid])
+  o <- as.numeric(obs_q[valid])
+
+  # Prefer hydroGOF when available, but keep a base-R fallback to avoid
+  # task failures from intermittent package-attach issues on parallel workers.
+  if (requireNamespace("hydroGOF", quietly = TRUE)) {
+    return(list(
+      KGE = hydroGOF::KGE(s, o, na.rm = TRUE),
+      NSE = hydroGOF::NSE(s, o, na.rm = TRUE),
+      RMSE = hydroGOF::rmse(s, o, na.rm = TRUE),
+      n_obs = n_obs
+    ))
+  }
+
+  rmse <- sqrt(mean((s - o)^2))
+
+  nse_denom <- sum((o - mean(o))^2)
+  nse <- if (is.finite(nse_denom) && nse_denom > 0) {
+    1 - (sum((s - o)^2) / nse_denom)
+  } else {
+    NA_real_
+  }
+
+  r <- suppressWarnings(stats::cor(s, o))
+  alpha <- if (stats::sd(o) > 0) stats::sd(s) / stats::sd(o) else NA_real_
+  beta <- if (mean(o) != 0) mean(s) / mean(o) else NA_real_
+  kge <- if (all(is.finite(c(r, alpha, beta)))) {
+    1 - sqrt((r - 1)^2 + (alpha - 1)^2 + (beta - 1)^2)
+  } else {
+    NA_real_
+  }
+
+  list(KGE = kge, NSE = nse, RMSE = rmse, n_obs = n_obs)
 }
