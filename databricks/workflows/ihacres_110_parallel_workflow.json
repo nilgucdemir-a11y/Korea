@@ -1,0 +1,119 @@
+{
+  "name": "ihacres-kor-dynamic-catchments-parallel",
+  "max_concurrent_runs": 1,
+  "timeout_seconds": 0,
+  "parameters": [
+    {
+      "name": "country",
+      "default": "KOR"
+    },
+    {
+      "name": "model_years",
+      "default": "1000"
+    },
+    {
+      "name": "model_type",
+      "default": "snow"
+    },
+    {
+      "name": "start_date",
+      "default": "0000-01-01"
+    },
+    {
+      "name": "advanced_config_json",
+      "default": ""
+    }
+  ],
+  "job_clusters": [
+    {
+      "job_cluster_key": "ihacres_shared_cluster",
+      "new_cluster": {
+        "spark_version": "14.3.x-scala2.12",
+        "node_type_id": "REPLACE_WITH_YOUR_NODE_TYPE_ID",
+        "autoscale": {
+          "min_workers": 4,
+          "max_workers": 32
+        },
+        "data_security_mode": "SINGLE_USER",
+        "runtime_engine": "STANDARD"
+      }
+    }
+  ],
+  "tasks": [
+    {
+      "task_key": "setup_environment",
+      "job_cluster_key": "ihacres_shared_cluster",
+      "notebook_task": {
+        "notebook_path": "/Workspace/Shared/ihacres/notebooks/00_setup_and_widgets",
+        "base_parameters": {
+          "country": "{{job.parameters.country}}",
+          "model_years": "{{job.parameters.model_years}}",
+          "model_type": "{{job.parameters.model_type}}",
+          "start_date": "{{job.parameters.start_date}}",
+          "advanced_config_json": "{{job.parameters.advanced_config_json}}"
+        }
+      }
+    },
+    {
+      "task_key": "calibrate_catchments_parallel",
+      "depends_on": [
+        {
+          "task_key": "setup_environment"
+        }
+      ],
+      "for_each_task": {
+        "inputs": "{{tasks.setup_environment.values.catchment_indices_json}}",
+        "concurrency": "{{tasks.setup_environment.values.parallel_tasks_this_run}}",
+        "task": {
+          "task_key": "calibrate_single_catchment",
+          "job_cluster_key": "ihacres_shared_cluster",
+          "notebook_task": {
+            "notebook_path": "/Workspace/Shared/ihacres/notebooks/01_calibrate_ihacres_for_catchment",
+            "base_parameters": {
+              "catchment_idx": "{{input}}",
+              "run_config_path": "{{tasks.setup_environment.values.run_config_path}}"
+            }
+          }
+        }
+      }
+    },
+    {
+      "task_key": "simulate_catchments_parallel",
+      "depends_on": [
+        {
+          "task_key": "calibrate_catchments_parallel"
+        }
+      ],
+      "for_each_task": {
+        "inputs": "{{tasks.setup_environment.values.catchment_indices_json}}",
+        "concurrency": "{{tasks.setup_environment.values.parallel_tasks_this_run}}",
+        "task": {
+          "task_key": "simulate_single_catchment",
+          "job_cluster_key": "ihacres_shared_cluster",
+          "notebook_task": {
+            "notebook_path": "/Workspace/Shared/ihacres/notebooks/02_simulate_ihacres_for_catchment",
+            "base_parameters": {
+              "catchment_idx": "{{input}}",
+              "run_config_path": "{{tasks.setup_environment.values.run_config_path}}"
+            }
+          }
+        }
+      }
+    },
+    {
+      "task_key": "merge_results",
+      "depends_on": [
+        {
+          "task_key": "simulate_catchments_parallel"
+        }
+      ],
+      "job_cluster_key": "ihacres_shared_cluster",
+      "notebook_task": {
+        "notebook_path": "/Workspace/Shared/ihacres/notebooks/03_merge_results",
+        "base_parameters": {
+          "run_config_path": "{{tasks.setup_environment.values.run_config_path}}"
+        }
+      }
+    }
+  ]
+}
