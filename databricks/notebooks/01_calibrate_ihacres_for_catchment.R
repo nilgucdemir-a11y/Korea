@@ -50,7 +50,6 @@ calibration_samples <- parse_int_or_stop(as.character(cfg_value(cfg, "calibratio
 optimization_method <- as.character(cfg_value(cfg, "optimization_method", "PORT"))
 objective <- normalize_objective(cfg_value(cfg, "objective", "kge"))
 model_type <- tolower(as.character(cfg_value(cfg, "model_type", "snow")))
-auto_align_start_date <- parse_bool(cfg_value(cfg, "auto_align_start_date", TRUE), default = TRUE)
 min_obs <- parse_int_or_stop(as.character(cfg_value(cfg, "min_obs", 365L)), "min_obs", min_value = 30L)
 
 if (!(model_type %in% c("snow", "cmd"))) stop("model_type must be snow or cmd")
@@ -127,7 +126,7 @@ run_one_catchment <- function(catchment_id) {
     if (!identical(peq_result$status, "ok")) {
       tibble::tibble(
         catchment_id = catchment_id,
-        status = peq_result$status,
+        status = "error",
         reason = peq_result$reason,
         model_type = model_type,
         objective = objective,
@@ -161,51 +160,13 @@ run_one_catchment <- function(catchment_id) {
         }
       }
 
-      peq_range <- date_range_from_df(peq_df, date_col = "Date")
-      cal_window <- list(
-        start_date = start_date,
-        end_date = calibration_end_date,
-        adjusted = FALSE,
-        requested_start = start_date,
-        requested_end = calibration_end_date
-      )
-      if (peq_range$has_dates) {
-        cal_window <- resolve_analysis_window(
-          requested_start_date = start_date,
-          years = calibration_years,
-          days_per_year = days_per_year,
-          data_min_date = peq_range$min_date,
-          data_max_date = peq_range$max_date,
-          auto_align = auto_align_start_date
-        )
-        if (isTRUE(cal_window$adjusted)) {
-          message(sprintf(
-            "[%s] Calibration window %s..%s does not overlap data %s..%s; using %s..%s",
-            catchment_id,
-            format_date_ymd(cal_window$requested_start),
-            format_date_ymd(cal_window$requested_end),
-            format_date_ymd(peq_range$min_date),
-            format_date_ymd(peq_range$max_date),
-            format_date_ymd(cal_window$start_date),
-            format_date_ymd(cal_window$end_date)
-          ))
-        }
-        if (isTRUE(cal_window$strict_window)) {
-          message(sprintf(
-            "[%s] Strict zero-year timeline: calibration window kept as %s..%s",
-            catchment_id,
-            format_date_ymd(cal_window$start_date),
-            format_date_ymd(cal_window$end_date)
-          ))
-        }
-      }
-      cal_start_text <- format_date_ymd(cal_window$start_date)
-      cal_end_text <- format_date_ymd(cal_window$end_date)
+      cal_start_text <- format_date_ymd(start_date)
+      cal_end_text <- format_date_ymd(calibration_end_date)
 
       ts_result <- prepare_model_ts(
         peq_df = peq_df,
-        start_date = cal_window$start_date,
-        end_date = cal_window$end_date,
+        start_date = start_date,
+        end_date = calibration_end_date,
         min_obs = min_obs,
         require_q = TRUE
       )
@@ -213,7 +174,7 @@ run_one_catchment <- function(catchment_id) {
       if (!identical(ts_result$status, "ok")) {
         tibble::tibble(
           catchment_id = catchment_id,
-          status = ts_result$status,
+          status = "error",
           reason = ts_result$reason,
           model_type = model_type,
           objective = objective,

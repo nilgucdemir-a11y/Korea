@@ -55,7 +55,6 @@ simulation_years <- if (!is.null(cfg$simulation_years_csv)) {
 days_per_year <- parse_int_or_stop(as.character(cfg_value(cfg, "days_per_year", 365L)), "days_per_year", min_value = 1L)
 objective <- normalize_objective(cfg_value(cfg, "objective", "kge"))
 model_type <- tolower(as.character(cfg_value(cfg, "model_type", "snow")))
-auto_align_start_date <- parse_bool(cfg_value(cfg, "auto_align_start_date", TRUE), default = TRUE)
 min_obs <- parse_int_or_stop(as.character(cfg_value(cfg, "min_obs", 365L)), "min_obs", min_value = 30L)
 
 if (!(model_type %in% c("snow", "cmd"))) stop("model_type must be snow or cmd")
@@ -152,47 +151,14 @@ run_one_catchment <- function(catchment_id) {
       dplyr::filter(!is.na(Date)) %>%
       dplyr::filter(stats::complete.cases(P, E))
 
-    date_range <- date_range_from_df(base_df, date_col = "Date")
-    if (!date_range$has_dates) {
-      stop("No valid Date values found after P/E filtering")
-    }
-
     rows <- lapply(simulation_years, function(y) {
-      sim_window <- resolve_analysis_window(
-        requested_start_date = start_date,
-        years = y,
-        days_per_year = days_per_year,
-        data_min_date = date_range$min_date,
-        data_max_date = date_range$max_date,
-        auto_align = auto_align_start_date
-      )
-      if (isTRUE(sim_window$adjusted)) {
-        message(sprintf(
-          "[%s] Simulation window(%sy) %s..%s does not overlap data %s..%s; using %s..%s",
-          catchment_id,
-          y,
-          format_date_ymd(sim_window$requested_start),
-          format_date_ymd(sim_window$requested_end),
-          format_date_ymd(date_range$min_date),
-          format_date_ymd(date_range$max_date),
-          format_date_ymd(sim_window$start_date),
-          format_date_ymd(sim_window$end_date)
-        ))
-      }
-      if (isTRUE(sim_window$strict_window)) {
-        message(sprintf(
-          "[%s] Strict zero-year timeline: simulation window(%sy) kept as %s..%s",
-          catchment_id,
-          y,
-          format_date_ymd(sim_window$start_date),
-          format_date_ymd(sim_window$end_date)
-        ))
-      }
-      sim_start_text <- format_date_ymd(sim_window$start_date)
-      sim_end_text <- format_date_ymd(sim_window$end_date)
+      sim_start_date <- start_date
+      sim_end_date <- window_end_from_years(start_date, y, days_per_year = days_per_year)
+      sim_start_text <- format_date_ymd(sim_start_date)
+      sim_end_text <- format_date_ymd(sim_end_date)
 
       window_df <- base_df[
-        base_df$Date >= sim_window$start_date & base_df$Date <= sim_window$end_date,
+        base_df$Date >= sim_start_date & base_df$Date <= sim_end_date,
         ,
         drop = FALSE
       ]
@@ -203,8 +169,8 @@ run_one_catchment <- function(catchment_id) {
           simulation_years = y,
           simulation_start_date = sim_start_text,
           simulation_end_date = sim_end_text,
-          status = "skip",
-          reason = sprintf("Not enough rows after filtering (%s)", nrow(window_df)),
+          status = "error",
+          reason = sprintf("Not enough rows in fixed window (%s)", nrow(window_df)),
           model_type = model_type,
           objective = objective,
           simulation_method = NA_character_,

@@ -125,6 +125,7 @@ Notes:
   - Setup generates catchment list automatically.
   - Parallel tasks read from that list.
 - Output writes use best-effort save checks and do not hard-stop tasks for transient file-size/reporting delays on mounted volumes.
+- Calibration/simulation notebooks use fixed windows from `start_date` and report problematic catchments as `error` rows (not `skip`) for easier debugging.
 
 ---
 

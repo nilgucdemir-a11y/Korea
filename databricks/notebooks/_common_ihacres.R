@@ -530,7 +530,7 @@ build_daily_ptq_for_catchment <- function(
   subw <- weights_df[weights_df$catchment_id == catchment_id, , drop = FALSE]
 
   if (nrow(subw) == 0) {
-    return(list(status = "skip", reason = "No weights found for catchment"))
+    return(list(status = "error", reason = "No weights found for catchment"))
   }
 
   op_ids <- subw$op.id
@@ -538,13 +538,13 @@ build_daily_ptq_for_catchment <- function(
   available <- op_ids[op_ids %in% union(names(precip_files_index), names(temp_files_index))]
 
   if (length(available) == 0) {
-    return(list(status = "skip", reason = "No precip/temp files found for op IDs"))
+    return(list(status = "error", reason = "No precip/temp files found for op IDs"))
   }
 
   weights <- weights[match(available, op_ids)]
   weights[is.na(weights) | !is.finite(weights) | weights < 0] <- 0
   if (sum(weights, na.rm = TRUE) <= 0) {
-    return(list(status = "skip", reason = "Invalid non-positive weights"))
+    return(list(status = "error", reason = "Invalid non-positive weights"))
   }
   weights_norm <- weights / sum(weights, na.rm = TRUE)
 
@@ -561,7 +561,7 @@ build_daily_ptq_for_catchment <- function(
   lens <- c(vapply(precip_series, length, numeric(1)), vapply(temp_series, length, numeric(1)))
   lens <- lens[is.finite(lens) & lens > 0]
   if (length(lens) == 0) {
-    return(list(status = "skip", reason = "No valid precip/temp time series"))
+    return(list(status = "error", reason = "No valid precip/temp time series"))
   }
 
   common_len <- min(lens)
@@ -575,7 +575,7 @@ build_daily_ptq_for_catchment <- function(
   }
 
   if (!is.finite(common_len) || common_len <= 0) {
-    return(list(status = "skip", reason = "Invalid common series length"))
+    return(list(status = "error", reason = "Invalid common series length"))
   }
 
   trim_pad <- function(vec, len) {
@@ -901,7 +901,7 @@ resolve_peq_for_catchment <- function(catchment_id, catalog, start_date) {
   if (identical(catalog$mode, "existing_peq")) {
     peq_path <- catalog$peq_index[[catchment_id]]
     if (is.null(peq_path) || !nzchar(peq_path)) {
-      return(list(status = "skip", reason = "No PEQ file found for catchment"))
+      return(list(status = "error", reason = "No PEQ file found for catchment"))
     }
 
     peq_df <- read_peq_file(peq_path, catchment_id = catchment_id)
@@ -958,7 +958,7 @@ prepare_model_ts <- function(peq_df, start_date, end_date, min_obs = 365L, requi
         format_date_ymd(end_date)
       )
     }
-    return(list(status = "skip", reason = reason))
+    return(list(status = "error", reason = reason))
   }
 
   df <- df0
@@ -970,7 +970,7 @@ prepare_model_ts <- function(peq_df, start_date, end_date, min_obs = 365L, requi
 
   if (nrow(df) < min_obs) {
     return(list(
-      status = "skip",
+      status = "error",
       reason = sprintf(
         "Not enough rows after filtering (%s of %s in %s..%s; min_obs=%s)",
         nrow(df),
