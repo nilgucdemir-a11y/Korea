@@ -377,7 +377,7 @@ message(sprintf("Task values payload staged at: %s", task_values_payload_path))
 # COMMAND ----------
 
 message("Setup complete.")
-message("Output save verification: enabled (exists + non-empty checks).")
+message("Output writes: simple mode (best-effort writes, no hard-stop verification).")
 message(sprintf("Country/region: %s", sub_region))
 message(sprintf("Mode: %s", ifelse(use_existing_peq, "Use existing PEQ files", "Build PEQ from forcing files")))
 message(sprintf("Model type: %s", model_type))

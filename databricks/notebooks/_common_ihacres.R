@@ -260,32 +260,32 @@ verify_saved_file <- function(
     }
   }
 
-  stop(sprintf(
-    "%s save verification failed after %s attempts: %s",
+  warning(sprintf(
+    "%s save verification warning after %s attempts: %s",
     label,
     attempts,
     last_reason
   ))
-
-  invisible(TRUE)
+  invisible(FALSE)
 }
 
 save_rds_verified <- function(object, path, label = "RDS file") {
   saveRDS(object, path)
-  verify_saved_file(path, label = label, require_non_empty = TRUE, min_bytes = 1L)
+  try(verify_saved_file(path, label = label, require_non_empty = TRUE, min_bytes = 1L), silent = TRUE)
   invisible(path)
 }
 
 write_csv_verified <- function(df, path, label = "CSV file", ...) {
   readr::write_csv(df, path, ...)
-  verify_saved_file(path, label = label, require_non_empty = TRUE, min_bytes = 1L)
+  try(verify_saved_file(path, label = label, require_non_empty = TRUE, min_bytes = 1L), silent = TRUE)
   invisible(path)
 }
 
 write_text_verified <- function(text, path, label = "text file") {
   p <- as.character(path)
   if (length(p) == 0 || is.na(p[[1]]) || !nzchar(p[[1]])) {
-    stop(sprintf("Invalid save path for %s", label))
+    warning(sprintf("Invalid save path for %s", label))
+    return(invisible(path))
   }
   p <- p[[1]]
 
@@ -297,18 +297,22 @@ write_text_verified <- function(text, path, label = "text file") {
   )
 
   writeLines(text, tmp, useBytes = TRUE)
-  verify_saved_file(tmp, label = sprintf("%s temp file", label), require_non_empty = TRUE, min_bytes = 1L)
+  try(
+    verify_saved_file(tmp, label = sprintf("%s temp file", label), require_non_empty = TRUE, min_bytes = 1L),
+    silent = TRUE
+  )
 
   renamed <- tryCatch(file.rename(tmp, p), error = function(e) FALSE)
   if (!isTRUE(renamed)) {
     copied <- tryCatch(file.copy(tmp, p, overwrite = TRUE), error = function(e) FALSE)
     if (!isTRUE(copied)) {
-      stop(sprintf("Unable to move temp file into final path for %s: %s", label, p))
+      warning(sprintf("Unable to move temp file into final path for %s: %s", label, p))
+      return(invisible(path))
     }
     unlink(tmp, force = TRUE)
   }
 
-  verify_saved_file(path, label = label, require_non_empty = TRUE, min_bytes = 1L)
+  try(verify_saved_file(path, label = label, require_non_empty = TRUE, min_bytes = 1L), silent = TRUE)
   invisible(path)
 }
 

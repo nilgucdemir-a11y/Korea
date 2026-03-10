@@ -124,7 +124,7 @@ Notes:
 - You do **not** need to enter catchment IDs manually in normal workflow runs.
   - Setup generates catchment list automatically.
   - Parallel tasks read from that list.
-- Output writes are verified immediately (file exists and is non-empty) for setup, calibration, simulation, and merge outputs.
+- Output writes use best-effort save checks and do not hard-stop tasks for transient file-size/reporting delays on mounted volumes.
 
 ---
 
@@ -264,8 +264,8 @@ Useful for checking country data before running the full workflow.
   - note: if `start_date = 0000-01-01`, strict zero-year windows are intentionally kept (no auto shift)
   - check calibration/simulation logs for window-alignment messages
 
-- **Save verification failed (file missing/empty)**
-  - verification includes automatic retry/backoff for transient storage delays
+- **Some files appear empty right after run**
+  - mounted volume metadata can be eventually consistent for a short period; rerun merge after a short wait
   - check volume/path permissions and free space
   - verify `ihacres_output_dir` and related paths are valid for the running cluster
 

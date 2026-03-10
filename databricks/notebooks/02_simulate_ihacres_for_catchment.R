@@ -117,11 +117,14 @@ run_one_catchment <- function(catchment_id) {
   fit_path <- file.path(ihacres_output_dir, "calibration_models", paste0(catchment_id, "_fit.rds"))
   peq_cache_path <- file.path(ihacres_output_dir, "peq", paste0(catchment_id, ".rds"))
   metrics_path <- file.path(ihacres_output_dir, "simulation_metrics", paste0(catchment_id, "_simulation_metrics.csv"))
-  log_path <- file.path(ihacres_output_dir, "simulation_logs", paste0(catchment_id, "_simulation_log.json"))
 
   load_or_build_peq <- function() {
     if (file.exists(peq_cache_path)) {
-      return(normalize_peq_df(readRDS(peq_cache_path), catchment_id = catchment_id))
+      cached <- tryCatch(readRDS(peq_cache_path), error = function(e) NULL)
+      if (!is.null(cached)) {
+        return(normalize_peq_df(cached, catchment_id = catchment_id))
+      }
+      message(sprintf("[%s] Cached PEQ could not be read; rebuilding from source.", catchment_id))
     }
 
     peq_result <- resolve_peq_for_catchment(catchment_id = catchment_id, catalog = catalog, start_date = start_date)
@@ -308,18 +311,6 @@ run_one_catchment <- function(catchment_id) {
   })
 
   write_csv_verified(result_rows, metrics_path, label = "simulation metrics CSV")
-
-  run_log <- list(
-    catchment_id = catchment_id,
-    status_counts = as.list(table(result_rows$status)),
-    metrics_path = metrics_path,
-    finished_utc = format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ", tz = "UTC")
-  )
-  write_text_verified(
-    jsonlite::toJSON(run_log, auto_unbox = TRUE, pretty = TRUE),
-    log_path,
-    label = "simulation log JSON"
-  )
 
   result_rows
 }

@@ -121,7 +121,6 @@ run_one_catchment <- function(catchment_id) {
   fit_path <- file.path(ihacres_output_dir, "calibration_models", paste0(catchment_id, "_fit.rds"))
   cal_ts_path <- file.path(ihacres_output_dir, "calibration_timeseries", paste0(catchment_id, "_calibration_sim_vs_obs.csv"))
   metrics_path <- file.path(ihacres_output_dir, "calibration_metrics", paste0(catchment_id, "_calibration_metrics.csv"))
-  log_path <- file.path(ihacres_output_dir, "calibration_logs", paste0(catchment_id, "_calibration_log.json"))
 
   result_row <- tryCatch({
     peq_result <- resolve_peq_for_catchment(catchment_id = catchment_id, catalog = catalog, start_date = start_date)
@@ -338,20 +337,6 @@ run_one_catchment <- function(catchment_id) {
   })
 
   write_csv_verified(result_row, metrics_path, label = "calibration metrics CSV")
-
-  run_log <- list(
-    catchment_id = catchment_id,
-    status = result_row$status[[1]],
-    reason = result_row$reason[[1]],
-    metrics_path = metrics_path,
-    fit_path = result_row$fit_path[[1]],
-    finished_utc = result_row$run_finished_utc[[1]]
-  )
-  write_text_verified(
-    jsonlite::toJSON(run_log, auto_unbox = TRUE, pretty = TRUE),
-    log_path,
-    label = "calibration log JSON"
-  )
 
   result_row
 }
