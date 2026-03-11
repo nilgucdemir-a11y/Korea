@@ -45,10 +45,10 @@ country_defaults <- function(country_code, years, mtype) {
       sub_region = "KOR",
       use_existing_peq = TRUE,
       peq_dir = "/Volumes/gc_prod_sandbox/mdt_sandbox/r_mdt/Projects/Other/122_2025_KR_IHACRES/R02_Input/",
-      weights_file = "/Volumes/gc_prod_sandbox/mdt_sandbox/r_mdt/Projects/Other/122_2025_KR_IHACRES/R02_Catchmentweights/R02_precip_ops_per_catchment.csv",
-      precip_dir = "/Volumes/gc_prod_sandbox/mdt_sandbox/r_mdt/Projects/Other/122_2025_KR_IHACRES/R02_2016R1/sim.precip.data/",
-      temp_dir = "/Volumes/gc_prod_sandbox/mdt_sandbox/r_mdt/Projects/Other/122_2025_KR_IHACRES/R02_2016R1/sim.temp.data/",
-      river_dir = "/Volumes/gc_prod_sandbox/mdt_sandbox/r_mdt/Projects/Other/122_2025_KR_IHACRES/R02_2016R1/sim.river.data/",
+      weights_file = "",
+      precip_dir = "",
+      temp_dir = "",
+      river_dir = "",
       ptq_output_dir = "/Volumes/gc_prod_sandbox/mdt_sandbox/r_mdt/Projects/Other/122_2025_KR_IHACRES/R02_Input/",
       ihacres_output_dir = sprintf(
         "/Volumes/gc_prod_sandbox/mdt_sandbox/r_mdt/Projects/Other/122_2025_KR_IHACRES/R02_Output/ihacres_results/%s_%sy_%s/",
@@ -61,7 +61,6 @@ country_defaults <- function(country_code, years, mtype) {
       calibration_samples = 1000L,
       optimization_method = "PORT",
       objective = "kge",
-      auto_align_start_date = FALSE,
       catchment_limit = NA_integer_,
       parallel_concurrency_limit = NA_integer_,
       min_obs = 365L
@@ -85,7 +84,6 @@ country_defaults <- function(country_code, years, mtype) {
     calibration_samples = 1000L,
     optimization_method = "PORT",
     objective = "kge",
-    auto_align_start_date = FALSE,
     catchment_limit = NA_integer_,
     parallel_concurrency_limit = NA_integer_,
     min_obs = 365L
@@ -95,7 +93,7 @@ country_defaults <- function(country_code, years, mtype) {
 cfg <- merge_named_lists(country_defaults(country, model_years, model_type), advanced_cfg)
 
 sub_region <- toupper(as.character(if (is.null(cfg$sub_region)) country else cfg$sub_region))
-use_existing_peq <- parse_bool(cfg$use_existing_peq, default = TRUE)
+use_existing_peq <- TRUE
 peq_dir <- as.character(if (is.null(cfg$peq_dir)) "" else cfg$peq_dir)
 weights_file <- as.character(if (is.null(cfg$weights_file)) "" else cfg$weights_file)
 precip_dir <- as.character(if (is.null(cfg$precip_dir)) "" else cfg$precip_dir)
@@ -109,7 +107,6 @@ calibration_samples <- parse_int_or_stop(as.character(if (is.null(cfg$calibratio
 optimization_method <- as.character(if (is.null(cfg$optimization_method)) "PORT" else cfg$optimization_method)
 objective <- normalize_objective(if (is.null(cfg$objective)) "kge" else cfg$objective)
 model_type <- tolower(as.character(if (is.null(cfg$model_type)) model_type else cfg$model_type))
-auto_align_start_date <- parse_bool(cfg$auto_align_start_date, default = FALSE)
 catchment_limit <- parse_optional_int(if (is.null(cfg$catchment_limit)) NA else cfg$catchment_limit, "catchment_limit", min_value = 1L, default = NA_integer_)
 parallel_concurrency_limit_override <- parse_optional_int(
   if (is.null(cfg$parallel_concurrency_limit)) NA else cfg$parallel_concurrency_limit,
@@ -131,14 +128,7 @@ simulation_years <- if (!is.null(cfg$simulation_years_csv)) {
 if (!(model_type %in% c("snow", "cmd"))) stop("model_type must be one of: snow, cmd")
 if (!(tolower(objective) %in% c("kge", "nse"))) stop("objective must be kge or NSE")
 
-if (sub_region != "KOR") {
-  if (use_existing_peq && !nzchar(peq_dir)) {
-    stop("For non-KOR runs with existing PEQ, set peq_dir in advanced_config_json")
-  }
-  if (!use_existing_peq && (!nzchar(weights_file) || !nzchar(precip_dir) || !nzchar(temp_dir) || !nzchar(river_dir))) {
-    stop("For non-KOR runs building from forcing, set weights_file/precip_dir/temp_dir/river_dir in advanced_config_json")
-  }
-}
+if (!nzchar(peq_dir)) stop("peq_dir must be provided")
 
 start_date_text <- format_date_ymd(start_date)
 calibration_end_date <- window_end_from_years(start_date, calibration_years, days_per_year = days_per_year)
@@ -204,8 +194,7 @@ catalog <- prepare_source_catalog(
   river_dir = river_dir
 )
 
-inventory <- catchment_inventory_from_catalog(catalog)
-eligible <- inventory$eligible_ids
+eligible <- sort(names(catalog$peq_index))
 if (!is.na(catchment_limit) && is.finite(catchment_limit) && catchment_limit > 0) {
   eligible <- utils::head(eligible, catchment_limit)
 }
@@ -222,8 +211,8 @@ parallel_concurrency_limit <- if (!is.na(parallel_concurrency_limit_override) &&
   length(eligible)
 }
 parallel_tasks_this_run <- parallel_concurrency_limit
-region_total_catchments <- as.integer(inventory$region_total)
-region_eligible_catchments <- as.integer(inventory$eligible_total)
+region_total_catchments <- as.integer(length(eligible))
+region_eligible_catchments <- as.integer(length(eligible))
 
 catchment_manifest <- if (identical(runtime_catalog$mode, "existing_peq")) {
   tibble::tibble(
@@ -232,16 +221,11 @@ catchment_manifest <- if (identical(runtime_catalog$mode, "existing_peq")) {
     source_path = unname(runtime_catalog$peq_index[match(eligible, names(runtime_catalog$peq_index))])
   )
 } else {
-  op_count <- vapply(
-    eligible,
-    function(cid) sum(runtime_catalog$weights_df$catchment_id == cid, na.rm = TRUE),
-    integer(1)
-  )
   tibble::tibble(
     catchment_id = eligible,
     source_mode = "build_from_forcing",
     source_path = NA_character_,
-    op_count = op_count
+    op_count = NA_integer_
   )
 }
 write_csv_verified(catchment_manifest, catchment_manifest_path, label = "catchment manifest CSV")
@@ -279,7 +263,6 @@ run_config <- list(
   optimization_method = optimization_method,
   objective = objective,
   model_type = model_type,
-  auto_align_start_date = auto_align_start_date,
   min_obs = min_obs,
   catchment_limit = catchment_limit,
   catchment_count = length(eligible),

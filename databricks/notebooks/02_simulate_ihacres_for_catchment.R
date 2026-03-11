@@ -32,13 +32,12 @@ run_config_path <- as.character(if (is.null(cfg$resolved_run_config_path)) run_c
 message(sprintf("Using run_config_path: %s", run_config_path))
 
 sub_region <- toupper(as.character(cfg_value(cfg, "sub_region", "KOR")))
-use_existing_peq <- parse_bool(cfg_value(cfg, "use_existing_peq", TRUE), default = TRUE)
+use_existing_peq <- TRUE
 peq_dir <- as.character(cfg_value(cfg, "peq_dir", ""))
 weights_file <- as.character(cfg_value(cfg, "weights_file", ""))
 precip_dir <- as.character(cfg_value(cfg, "precip_dir", ""))
 temp_dir <- as.character(cfg_value(cfg, "temp_dir", ""))
 river_dir <- as.character(cfg_value(cfg, "river_dir", ""))
-ptq_output_dir <- as.character(cfg_value(cfg, "ptq_output_dir", "/tmp/ihacres/ptq"))
 ihacres_output_dir <- as.character(cfg_value(cfg, "ihacres_output_dir", "/tmp/ihacres/results"))
 catchment_manifest_path <- as.character(cfg_value(cfg, "catchment_manifest_path", ""))
 catalog_rds_path <- as.character(cfg_value(cfg, "runtime_catalog_path", file.path(ihacres_output_dir, "manifests", "runtime_catalog.rds")))

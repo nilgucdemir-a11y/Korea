@@ -32,13 +32,12 @@ run_config_path <- as.character(if (is.null(cfg$resolved_run_config_path)) run_c
 message(sprintf("Using run_config_path: %s", run_config_path))
 
 sub_region <- toupper(as.character(cfg_value(cfg, "sub_region", "KOR")))
-use_existing_peq <- parse_bool(cfg_value(cfg, "use_existing_peq", TRUE), default = TRUE)
+use_existing_peq <- TRUE
 peq_dir <- as.character(cfg_value(cfg, "peq_dir", ""))
 weights_file <- as.character(cfg_value(cfg, "weights_file", ""))
 precip_dir <- as.character(cfg_value(cfg, "precip_dir", ""))
 temp_dir <- as.character(cfg_value(cfg, "temp_dir", ""))
 river_dir <- as.character(cfg_value(cfg, "river_dir", ""))
-ptq_output_dir <- as.character(cfg_value(cfg, "ptq_output_dir", "/tmp/ihacres/ptq"))
 ihacres_output_dir <- as.character(cfg_value(cfg, "ihacres_output_dir", "/tmp/ihacres/results"))
 catchment_manifest_path <- as.character(cfg_value(cfg, "catchment_manifest_path", ""))
 catalog_rds_path <- as.character(cfg_value(cfg, "runtime_catalog_path", file.path(ihacres_output_dir, "manifests", "runtime_catalog.rds")))
@@ -70,8 +69,6 @@ safe_dir_create(file.path(ihacres_output_dir, "calibration_models"))
 safe_dir_create(file.path(ihacres_output_dir, "calibration_metrics"))
 safe_dir_create(file.path(ihacres_output_dir, "calibration_timeseries"))
 safe_dir_create(file.path(ihacres_output_dir, "calibration_logs"))
-
-if (!use_existing_peq) safe_dir_create(ptq_output_dir)
 
 ensure_packages_installed()
 
@@ -115,8 +112,6 @@ run_one_catchment <- function(catchment_id) {
 
   peq_rds_path <- file.path(ihacres_output_dir, "peq", paste0(catchment_id, ".rds"))
   peq_csv_path <- file.path(ihacres_output_dir, "peq", paste0(catchment_id, ".csv"))
-  ptq_fallback_rds <- file.path(ptq_output_dir, paste0(catchment_id, ".rds"))
-  ptq_fallback_csv <- file.path(ptq_output_dir, paste0(catchment_id, ".csv"))
   fit_path <- file.path(ihacres_output_dir, "calibration_models", paste0(catchment_id, "_fit.rds"))
   cal_ts_path <- file.path(ihacres_output_dir, "calibration_timeseries", paste0(catchment_id, "_calibration_sim_vs_obs.csv"))
   metrics_path <- file.path(ihacres_output_dir, "calibration_metrics", paste0(catchment_id, "_calibration_metrics.csv"))
@@ -151,13 +146,6 @@ run_one_catchment <- function(catchment_id) {
       save_rds_verified(peq_df, peq_rds_path, label = "PEQ cache RDS")
       if (write_csv_out) {
         write_csv_verified(peq_df, peq_csv_path, label = "PEQ cache CSV")
-      }
-
-      if (!use_existing_peq) {
-        save_rds_verified(peq_df, ptq_fallback_rds, label = "PTQ fallback RDS")
-        if (write_csv_out) {
-          write_csv_verified(peq_df, ptq_fallback_csv, label = "PTQ fallback CSV")
-        }
       }
 
       cal_start_text <- format_date_ymd(start_date)

@@ -2,7 +2,7 @@
 
 This folder contains a Databricks workflow to run IHACRES at catchment scale with:
 
-- split stages (setup -> calibration -> simulation -> merge)
+- split stages (setup -> calibration -> simulation -> check -> merge)
 - dynamic parallel fan-out based on the selected catchment list
 - simple user inputs for daily operation
 
@@ -37,7 +37,12 @@ Despite the filename, the workflow is now dynamic:
    - simulates all requested year windows
    - saves simulation metrics/timeseries
 
-4. **merge_results** (`03_merge_results.R`)
+4. **check_catchment_results** (`025_check_catchment_results.R`)
+   - checks per-catchment outputs exist
+   - extracts fitted parameters (`coef`) per catchment
+   - writes simple check/parameter tables
+
+5. **merge_results** (`03_merge_results.R`)
    - merges all per-catchment outputs
    - writes run-level summary CSV files
 
@@ -48,6 +53,7 @@ Despite the filename, the workflow is now dynamic:
 - `notebooks/00_setup_and_widgets.R`
 - `notebooks/01_calibrate_ihacres_for_catchment.R`
 - `notebooks/02_simulate_ihacres_for_catchment.R`
+- `notebooks/025_check_catchment_results.R` (simple per-catchment check + parameter list)
 - `notebooks/03_merge_results.R`
 - `notebooks/04_analyze_results.R` (interactive analysis and comparison plots)
 - `notebooks/_common_ihacres.R` (shared helpers)
@@ -57,24 +63,13 @@ Despite the filename, the workflow is now dynamic:
 
 ## 3) Required inputs
 
-You can run in two data modes:
+This workflow now uses **existing PEQ files only** (no PTQ rebuild step).
 
-### A) Existing PEQ files (recommended for Korea)
+### Existing PEQ files
 
 - each catchment file should contain columns compatible with:
   - `Date`, `P`, `E`, `Q`
   - or `Date`, `precip_mean`, `temp_mean`, `Q`
-
-### B) Build PEQ from forcing/weights (for other countries)
-
-Provide:
-
-- catchment weights CSV (`catchment_id`, `op.id`, `weight`, `sub.region`)
-- precipitation directory (RDS by op id)
-- temperature directory (RDS by op id)
-- river/discharge directory (RDS by catchment)
-
-Use `advanced_config_json` to pass these custom paths.
 
 ---
 
@@ -104,11 +99,9 @@ KOR defaults now read existing PEQ files from:
 
 ```json
 {
-  "use_existing_peq": true,
   "peq_dir": "/Volumes/.../MY_COUNTRY_PEQ/",
   "calibration_years": 100,
   "simulation_years": [100, 500, 1000],
-  "auto_align_start_date": true,
   "catchment_limit": 250,
   "parallel_concurrency_limit": 120
 }
@@ -118,14 +111,11 @@ Notes:
 
 - If `catchment_limit` is omitted, all eligible catchments are selected.
 - If `parallel_concurrency_limit` is omitted, concurrency = selected catchment count.
-- If `auto_align_start_date` is omitted, it defaults to `true`.
-  - When enabled, calibration/simulation windows are automatically shifted to PEQ data start if requested windows do not overlap available dates.
-  - For `start_date = 0000-01-01`, strict zero-year windows are preserved (for example, 1000-year window ends at `1000-12-31`).
 - You do **not** need to enter catchment IDs manually in normal workflow runs.
   - Setup generates catchment list automatically.
   - Parallel tasks read from that list.
 - Output writes use best-effort save checks and do not hard-stop tasks for transient file-size/reporting delays on mounted volumes.
-- Calibration/simulation notebooks use fixed windows from `start_date` and report problematic catchments as `error` rows (not `skip`) for easier debugging.
+- Calibration/simulation notebooks use fixed windows from `start_date` and report problematic catchments as `error` rows for easier debugging.
 
 ---
 
@@ -138,6 +128,7 @@ Import these into Databricks workspace (example path):
 - `/Workspace/Shared/ihacres/notebooks/00_setup_and_widgets`
 - `/Workspace/Shared/ihacres/notebooks/01_calibrate_ihacres_for_catchment`
 - `/Workspace/Shared/ihacres/notebooks/02_simulate_ihacres_for_catchment`
+- `/Workspace/Shared/ihacres/notebooks/025_check_catchment_results`
 - `/Workspace/Shared/ihacres/notebooks/03_merge_results`
 - `/Workspace/Shared/ihacres/notebooks/_common_ihacres`
 - (optional) `/Workspace/Shared/ihacres/notebooks/_discover_catchments`
@@ -176,6 +167,7 @@ Then monitor:
 
 - calibration fan-out task
 - simulation fan-out task
+- check_catchment_results task
 - merge task
 
 Important:
@@ -229,6 +221,8 @@ Inside `ihacres_output_dir`:
 - `calibration_timeseries/<catchment_id>_calibration_sim_vs_obs.csv`
 - `simulation_metrics/<catchment_id>_simulation_metrics.csv`
 - `simulation_timeseries/<catchment_id>_sim_<years>y.csv`
+- `summaries/catchment_results_check.csv`
+- `summaries/catchment_parameter_summary.csv`
 - `summaries/calibration_metrics_all_catchments.csv`
 - `summaries/simulation_metrics_all_catchments.csv`
 - `summaries/simulation_status_summary_by_year.csv`
@@ -259,11 +253,9 @@ Useful for checking country data before running the full workflow.
   - verify input directories/files
   - for non-KOR runs, pass required paths in `advanced_config_json`
 
-- **Most metrics are `NA` / many `skip` rows**
-  - this usually means date windows did not overlap available PEQ dates
-  - keep `auto_align_start_date = true` (default), or set `start_date` to match PEQ data start
-  - note: if `start_date = 0000-01-01`, strict zero-year windows are intentionally kept (no auto shift)
-  - check calibration/simulation logs for window-alignment messages
+- **Most metrics are `NA` / many `error` rows**
+  - this usually means the fixed window (`start_date` to end date) has insufficient valid rows in that catchment file
+  - check per-catchment `reason` in calibration/simulation metrics and `summaries/catchment_results_check.csv`
 
 - **Some files appear empty right after run**
   - mounted volume metadata can be eventually consistent for a short period; rerun merge after a short wait

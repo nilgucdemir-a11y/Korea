@@ -101,10 +101,25 @@
       }
     },
     {
-      "task_key": "merge_results",
+      "task_key": "check_catchment_results",
       "depends_on": [
         {
           "task_key": "simulate_catchments_parallel"
+        }
+      ],
+      "job_cluster_key": "ihacres_shared_cluster",
+      "notebook_task": {
+        "notebook_path": "/Workspace/Shared/ihacres/notebooks/025_check_catchment_results",
+        "base_parameters": {
+          "run_config_path": "{{tasks.setup_environment.values.run_config_path}}"
+        }
+      }
+    },
+    {
+      "task_key": "merge_results",
+      "depends_on": [
+        {
+          "task_key": "check_catchment_results"
         }
       ],
       "job_cluster_key": "ihacres_shared_cluster",
